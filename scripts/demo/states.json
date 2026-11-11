@@ -1,0 +1,51 @@
+{
+ "region": [
+  1120,
+  360,
+  720,
+  170
+ ],
+ "scale": 2,
+ "fps": 20,
+ "dataDir": ".build/demo-data/states",
+ "steps": [
+  {
+   "delay": 0.6,
+   "mark": "set",
+   "url": null
+  },
+  {
+   "delay": 0.05,
+   "url": "jellyfish://state?agent=1&s=idle"
+  },
+  {
+   "delay": 0.05,
+   "url": "jellyfish://state?agent=2&s=thinking"
+  },
+  {
+   "delay": 0.05,
+   "url": "jellyfish://state?agent=3&s=working"
+  },
+  {
+   "delay": 0.05,
+   "url": "jellyfish://state?agent=4&s=completed"
+  },
+  {
+   "delay": 0.05,
+   "url": "jellyfish://state?agent=5&s=error"
+  },
+  {
+   "delay": 0.05,
+   "url": "jellyfish://state?agent=6&s=cancelled"
+  },
+  {
+   "delay": 3.6,
+   "mark": "loop"
+  },
+  {
+   "delay": 4.2,
+   "mark": "end",
+   "stop": true
+  }
+ ]
+}

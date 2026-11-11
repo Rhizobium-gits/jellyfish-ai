@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>ja</string>
+    <key>CFBundleExecutable</key>
+    <string>JellyfishAI</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.jellyfish.desktop</string>
+    <key>CFBundleName</key>
+    <string>Jellyfish AI</string>
+    <key>CFBundleDisplayName</key>
+    <string>Jellyfish AI</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>ai.jellyfish.desktop</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>jellyfish</string>
+            </array>
+        </dict>
+    </array>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>「この画面」を参照する指示のときに、その時点の画面をエージェントに渡すために使います。</string>
+</dict>
+</plist>

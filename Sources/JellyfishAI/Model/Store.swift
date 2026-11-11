@@ -1,0 +1,172 @@
+import Foundation
+import CoreGraphics
+import Carbon.HIToolbox
+
+/// グローバルショートカットの定義（Carbon のキーコード + 修飾キー）
+struct HotKeySpec: Codable, Equatable {
+    var keyCode: UInt32
+    var modifiers: UInt32
+
+    static let cmdL = HotKeySpec(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey))
+    static let optCmdL = HotKeySpec(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey | optionKey))
+    static let ctrlOptL = HotKeySpec(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(controlKey | optionKey))
+    static let ctrlOptCmdL = HotKeySpec(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(controlKey | optionKey | cmdKey))
+
+    var display: String {
+        var s = ""
+        if modifiers & UInt32(controlKey) != 0 { s += "⌃" }
+        if modifiers & UInt32(optionKey) != 0 { s += "⌥" }
+        if modifiers & UInt32(shiftKey) != 0 { s += "⇧" }
+        if modifiers & UInt32(cmdKey) != 0 { s += "⌘" }
+        s += HotKeySpec.keyName(keyCode)
+        return s
+    }
+
+    static func keyName(_ code: UInt32) -> String {
+        let map: [Int: String] = [
+            kVK_ANSI_A: "A", kVK_ANSI_B: "B", kVK_ANSI_C: "C", kVK_ANSI_D: "D", kVK_ANSI_E: "E",
+            kVK_ANSI_F: "F", kVK_ANSI_G: "G", kVK_ANSI_H: "H", kVK_ANSI_I: "I", kVK_ANSI_J: "J",
+            kVK_ANSI_K: "K", kVK_ANSI_L: "L", kVK_ANSI_M: "M", kVK_ANSI_N: "N", kVK_ANSI_O: "O",
+            kVK_ANSI_P: "P", kVK_ANSI_Q: "Q", kVK_ANSI_R: "R", kVK_ANSI_S: "S", kVK_ANSI_T: "T",
+            kVK_ANSI_U: "U", kVK_ANSI_V: "V", kVK_ANSI_W: "W", kVK_ANSI_X: "X", kVK_ANSI_Y: "Y",
+            kVK_ANSI_Z: "Z", kVK_Space: "Space",
+        ]
+        return map[Int(code)] ?? "#\(code)"
+    }
+}
+
+/// アプリ設定。~/Library/Application Support/JellyfishAI/settings.json に保存。
+/// 未知・欠落キーがあっても既定値で読めるよう手書きデコードにしている。
+struct AppSettings: Codable {
+    var newJellyHotKey: HotKeySpec = .cmdL
+    /// ⌘L が他アプリに取られていた場合に使う代替
+    var fallbackHotKey: HotKeySpec = .ctrlOptL
+    var toggleVisibilityHotKey: HotKeySpec = .optCmdL
+    /// この bundle ID のアプリが最前面にある間は ⌘L を解放する（ブラウザのアドレスバー等と共存したい場合）
+    var hotKeyPassthroughApps: [String] = []
+    var launchAtLogin: Bool = false
+    /// クラゲの大きさ（1.0 = 標準）
+    var jellyScale: Double = 1.0
+    var maxFPS: Int = 60
+    /// 待機中で動きが穏やかなときの fps（30 = 省電力、60 = 常になめらか）
+    var calmFPS: Int = 30
+    var allHidden: Bool = false
+    /// 見た目（既定はドット絵の Claude キャラクター）
+    var avatarStyle: AvatarStyle = .pixel
+    var nextAgentNumber: Int = 1
+    /// チャットウィンドウの既定サイズ（最後にリサイズした大きさを覚える）
+    /// 画面認識：自動判定 / 毎回 / しない、と撮る範囲
+    var screenMode: ScreenMode = .auto
+    var screenTarget: ScreenTarget = .activeDisplay
+    var chatWidth: Double = 660
+    var chatHeight: Double = 520
+    /// claude 実行ファイル（空なら自動検出）
+    var claudePath: String = ""
+    /// Claude Code の権限モード。既定は Auto Mode（公式オプション --permission-mode auto）
+    var permissionMode: String = "auto"
+    /// 使うモデル（空なら Claude Code の既定）
+    var model: String = ""
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AppSettings()
+        newJellyHotKey = c.value(HotKeySpec.self, .newJellyHotKey, d.newJellyHotKey)
+        fallbackHotKey = c.value(HotKeySpec.self, .fallbackHotKey, d.fallbackHotKey)
+        toggleVisibilityHotKey = c.value(HotKeySpec.self, .toggleVisibilityHotKey, d.toggleVisibilityHotKey)
+        hotKeyPassthroughApps = c.value([String].self, .hotKeyPassthroughApps, d.hotKeyPassthroughApps)
+        launchAtLogin = c.value(Bool.self, .launchAtLogin, d.launchAtLogin)
+        jellyScale = c.value(Double.self, .jellyScale, d.jellyScale)
+        maxFPS = c.value(Int.self, .maxFPS, d.maxFPS)
+        calmFPS = c.value(Int.self, .calmFPS, d.calmFPS)
+        allHidden = c.value(Bool.self, .allHidden, d.allHidden)
+        avatarStyle = c.value(AvatarStyle.self, .avatarStyle, d.avatarStyle)
+        nextAgentNumber = c.value(Int.self, .nextAgentNumber, d.nextAgentNumber)
+        chatWidth = c.value(Double.self, .chatWidth, d.chatWidth)
+        screenMode = c.value(ScreenMode.self, .screenMode, d.screenMode)
+        screenTarget = c.value(ScreenTarget.self, .screenTarget, d.screenTarget)
+        chatHeight = c.value(Double.self, .chatHeight, d.chatHeight)
+        claudePath = c.value(String.self, .claudePath, d.claudePath)
+        permissionMode = c.value(String.self, .permissionMode, d.permissionMode)
+        model = c.value(String.self, .model, d.model)
+    }
+}
+
+/// クラゲ1体 = エージェント1体の永続レコード。
+/// Phase 2 でセッション ID・作業ディレクトリ・履歴への参照をここに追加する。
+struct JellyRecord: Codable, Identifiable {
+    var id: UUID
+    var number: Int
+    var colorIndex: Int
+    /// ウィンドウ原点（スクリーン座標）。nil なら自動配置スロット
+    var origin: CGPoint?
+    var hidden: Bool
+    var state: AgentState
+    var createdAt: Date
+
+    var color: JellyColor { Palette.color(colorIndex) }
+    var title: String { "Agent \(number)" }
+}
+
+private extension KeyedDecodingContainer {
+    func value<T: Decodable>(_ type: T.Type, _ key: Key, _ fallback: T) -> T {
+        ((try? decodeIfPresent(type, forKey: key)) ?? nil) ?? fallback
+    }
+}
+
+/// データの保存先。普段は ~/Library/Application Support/JellyfishAI。
+/// 環境変数 JELLYFISH_DATA_DIR を付けて起動すると別の場所を使う（デモ録画・テストで普段のクラゲや会話に触れないため）
+enum AppPaths {
+    static let dataDir: URL = {
+        let dir: URL
+        if let p = ProcessInfo.processInfo.environment["JELLYFISH_DATA_DIR"], !p.isEmpty {
+            dir = URL(fileURLWithPath: (p as NSString).expandingTildeInPath, isDirectory: true)
+        } else {
+            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            dir = base.appendingPathComponent("JellyfishAI", isDirectory: true)
+        }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+}
+
+final class Store {
+    let dir: URL
+    private var settingsURL: URL { dir.appendingPathComponent("settings.json") }
+    private var jelliesURL: URL { dir.appendingPathComponent("jellies.json") }
+
+    init() {
+        dir = AppPaths.dataDir
+    }
+
+    func loadSettings() -> AppSettings {
+        guard let data = try? Data(contentsOf: settingsURL),
+              let s = try? JSONDecoder().decode(AppSettings.self, from: data) else { return AppSettings() }
+        return s
+    }
+
+    func save(_ settings: AppSettings) {
+        write(settings, to: settingsURL)
+    }
+
+    func loadJellies() -> [JellyRecord] {
+        guard let data = try? Data(contentsOf: jelliesURL) else { return [] }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return (try? dec.decode([JellyRecord].self, from: data)) ?? []
+    }
+
+    func save(_ jellies: [JellyRecord]) {
+        write(jellies, to: jelliesURL)
+    }
+
+    private func write<T: Encodable>(_ value: T, to url: URL) {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        guard let data = try? enc.encode(value) else { return }
+        // 書き込み途中でクラッシュしても壊れないよう atomic に
+        try? data.write(to: url, options: .atomic)
+    }
+}

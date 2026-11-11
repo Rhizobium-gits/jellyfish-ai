@@ -1,0 +1,44 @@
+import Foundation
+
+/// AI バックエンドから届くイベントを正規化したもの。
+/// クラゲの状態はこのイベントだけから決まる（応答テキストの内容から推測しない）。
+enum AgentEvent {
+    case started(session: String?, model: String?, permissionMode: String?)
+    case text(String)
+    case thinking
+    case toolStarted(name: String, summary: String)
+    case toolFinished(isError: Bool)
+    case finished(success: Bool, result: String, costUSD: Double?, durationMs: Int?)
+}
+
+/// ターンごとの実行オプション（クラゲごとにチャット画面から変えられる）
+struct AgentRunOptions {
+    /// nil なら既定
+    var model: String?
+    /// low / medium / high / xhigh / max。nil なら既定
+    var effort: String?
+}
+
+/// 実行中の 1 ターン
+protocol AgentHandle: AnyObject {
+    var isRunning: Bool { get }
+    func cancel()
+}
+
+/// AI の実行基盤。Claude Code CLI 以外（Claude API / OpenAI API / ローカル LLM など）も
+/// このプロトコルを実装すれば同じクラゲで動かせる。
+protocol AgentBackend {
+    var displayName: String { get }
+    /// 実際に適用される権限ポリシーの説明（ユーザーが確認できるように UI に出す）
+    var policyDescription: String { get }
+
+    /// 1 ターン実行する。onEvent / onExit はメインスレッドで呼ばれる。
+    func run(prompt: String,
+             sessionID: String,
+             resume: Bool,
+             cwd: URL,
+             logDir: URL,
+             options: AgentRunOptions,
+             onEvent: @escaping (AgentEvent) -> Void,
+             onExit: @escaping (_ status: Int32, _ stderrTail: String) -> Void) throws -> AgentHandle
+}

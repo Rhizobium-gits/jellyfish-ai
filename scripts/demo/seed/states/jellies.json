@@ -1,0 +1,74 @@
+[
+ {
+  "colorIndex": 0,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "57A7E000-0000-4000-8000-000000000001",
+  "number": 1,
+  "origin": [
+   1150,
+   600
+  ],
+  "state": "idle"
+ },
+ {
+  "colorIndex": 1,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "57A7E000-0000-4000-8000-000000000002",
+  "number": 2,
+  "origin": [
+   1265,
+   600
+  ],
+  "state": "idle"
+ },
+ {
+  "colorIndex": 2,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "57A7E000-0000-4000-8000-000000000003",
+  "number": 3,
+  "origin": [
+   1380,
+   600
+  ],
+  "state": "idle"
+ },
+ {
+  "colorIndex": 3,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "57A7E000-0000-4000-8000-000000000004",
+  "number": 4,
+  "origin": [
+   1495,
+   600
+  ],
+  "state": "idle"
+ },
+ {
+  "colorIndex": 4,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "57A7E000-0000-4000-8000-000000000005",
+  "number": 5,
+  "origin": [
+   1610,
+   600
+  ],
+  "state": "idle"
+ },
+ {
+  "colorIndex": 5,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "57A7E000-0000-4000-8000-000000000006",
+  "number": 6,
+  "origin": [
+   1725,
+   600
+  ],
+  "state": "idle"
+ }
+]
