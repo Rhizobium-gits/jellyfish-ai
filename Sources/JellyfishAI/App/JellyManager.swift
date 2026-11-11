@@ -18,6 +18,10 @@ final class JellyManager {
     private var chats: [UUID: AgentChatController] = [:]
     /// エージェント同士の分業（つながり・依頼・受け渡しの表示）
     private(set) var team: TeamCoordinator?
+    /// システムの音の聞き取り（同時に 1 つ）。値は AudioTranscriber（macOS 26 以降）
+    private var listener: (agent: UUID, object: AnyObject)?
+    /// 直近の文字起こしファイル（エージェントごと）
+    private(set) var lastTranscript: [UUID: URL] = [:]
 
     private var lastPointer = NSPoint(x: -1, y: -1)
     private var pointerIdleTicks = 0
@@ -206,6 +210,73 @@ final class JellyManager {
         save()
         onChange?()
         openChat(for: c)
+    }
+
+    // MARK: 聞き取り（システムの音 → 文字起こし）
+
+    func isListening(_ c: JellyController) -> Bool { listener?.agent == c.record.id }
+
+    /// 聞き取り中の表示（経過時間と最後の文）
+    func listeningStatus(_ c: JellyController) -> String? {
+        guard #available(macOS 26.0, *), listener?.agent == c.record.id, let t = listener?.object as? AudioTranscriber else { return nil }
+        let s = Int(Date().timeIntervalSince(t.startedAt))
+        let last = t.partial.isEmpty ? (t.lines.last.map { String($0.dropFirst(8)) } ?? "") : t.partial
+        return String(format: "🎧 聞き取り中 %d:%02d", s / 60, s % 60) + (last.isEmpty ? "" : " — " + String(last.suffix(40)))
+    }
+
+    /// 聞き取りの開始・停止。止めたら文字起こしをチャットの添付にする（「議事録にして」「英訳して」などと続けて頼める）
+    func toggleListening(_ c: JellyController) {
+        guard #available(macOS 26.0, *) else {
+            alert("聞き取りには macOS 26 以降が必要です", "")
+            return
+        }
+        if let cur = listener, let t = cur.object as? AudioTranscriber {
+            listener = nil
+            let agent = cur.agent
+            Task { @MainActor in
+                await t.stop()
+                self.lastTranscript[agent] = t.fileURL
+                if let ctl = self.controllers.first(where: { $0.record.id == agent }) {
+                    self.openChat(for: ctl)
+                    self.chats[agent]?.addAttachments([t.fileURL])
+                    self.chats[agent]?.setInputHint("文字起こしを添付しました。例:「議事録にまとめて」「英語に翻訳して」「要点と ToDo を出して」")
+                }
+                self.onChange?()
+            }
+            if agent == c.record.id { return }
+        }
+        guard let rt = runtimes[c.record.id] else { return }
+        let t = AudioTranscriber(dir: rt.dir.appendingPathComponent("transcripts", isDirectory: true))
+        listener = (c.record.id, t)
+        let id = c.record.id
+        t.onUpdate = { [weak self] in self?.chats[id]?.refresh() }
+        chats[id]?.refresh()
+        Task { @MainActor in
+            do {
+                try await t.start()
+                self.lastTranscript[id] = t.fileURL
+            } catch {
+                if self.listener?.agent == id { self.listener = nil }
+                self.alert("聞き取りを始められませんでした", error.localizedDescription)
+            }
+            self.chats[id]?.refresh()
+            self.onChange?()
+        }
+    }
+
+    /// 文字起こしの中身（エージェントの read_transcript 用）
+    func transcriptText(for id: UUID, sinceLine: Int) -> (path: String, lines: [String], live: Bool)? {
+        guard let url = lastTranscript[id], let s = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let lines = s.split(separator: "\n").map(String.init).filter { $0.hasPrefix("[") }
+        return (url.path, Array(lines.dropFirst(max(0, sinceLine))), listener?.agent == id)
+    }
+
+    private func alert(_ title: String, _ text: String) {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = text
+        NSApp.activate(ignoringOtherApps: true)
+        a.runModal()
     }
 
     /// 「過去のセッション」の一覧から外す / 戻す（Claude Code のセッションファイルには触れない）

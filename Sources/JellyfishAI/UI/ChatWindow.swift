@@ -81,6 +81,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private let terminalButton = NSButton(title: "Claude Code で開く", target: nil, action: nil)
     private let renameButton = NSButton(title: "名前", target: nil, action: nil)
     private let pcButton = NSButton(title: "🖱 PC 操作", target: nil, action: nil)
+    private let listenButton = NSButton(title: "🎧", target: nil, action: nil)
+    private var listenTimer: Timer?
     private let transcript = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
     private let transcriptScroll = NSScrollView()
     private let input = PromptTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 44))
@@ -163,7 +165,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         stateLabel.lineBreakMode = .byTruncatingTail
         stateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         dot.imageScaling = .scaleNone
-        for b in [cancelButton, retryButton, folderButton, terminalButton, renameButton, pcButton] {
+        for b in [cancelButton, retryButton, folderButton, terminalButton, renameButton, pcButton, listenButton] {
             b.bezelStyle = .accessoryBarAction
             b.controlSize = .small
             b.font = .systemFont(ofSize: 11.5)
@@ -172,6 +174,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         cancelButton.action = #selector(cancelTask)
         renameButton.action = #selector(renameAgent)
         pcButton.action = #selector(togglePC)
+        listenButton.action = #selector(toggleListen)
+        listenButton.setButtonType(.pushOnPushOff)
+        listenButton.toolTip = "システムの音（会議・動画など）を聞き取って文字にする。止めると文字起こしを添付するので「議事録にして」「翻訳して」と頼める"
         pcButton.setButtonType(.pushOnPushOff)
         pcButton.toolTip = "このエージェントに PC 操作（画面を見る・クリック・入力）を許す。操作中は画面の縁が光り、Esc で止まる。次の指示から反映"
         renameButton.toolTip = "このエージェントの名前を変える（仲間どうしはこの名前で呼び合います）"
@@ -213,7 +218,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         effortPopup.action = #selector(effortChanged)
         modelPopup.toolTip = "このクラゲが使うモデル（次の指示から反映）"
         effortPopup.toolTip = "考える強さ（--effort。次の指示から反映）"
-        let controlsRow = NSStackView(views: [modelPopup, effortPopup, screenPopup, attachButton, pcButton, folderButton, NSView(), terminalButton])
+        let controlsRow = NSStackView(views: [modelPopup, effortPopup, screenPopup, attachButton, pcButton, listenButton, folderButton, NSView(), terminalButton])
         controlsRow.orientation = .horizontal
         controlsRow.spacing = 6
         // 幅が足りないときはウィンドウを広げず、フォルダ名・ポップアップの文字を省略して縮める
@@ -369,10 +374,22 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         if capturing { st = "\(r.title) · 📷 画面を取り込んでいます…" }
         if let m = runtime.activeModel { st += "  ·  \(m)" }
         if let p = manager?.team?.pendingDescription(for: r.id) { st += "  ·  \(p)" }
+        if let l = manager?.listeningStatus(jelly) { st = "\(r.title) · " + l }
         screenPopup.selectItem(at: ScreenMode.allCases.firstIndex(of: manager?.settings.screenMode ?? .auto) ?? 0)
         modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 0)
         effortPopup.selectItem(at: AgentChatController.efforts.firstIndex { $0.value == runtime.effort } ?? 0)
         effortPopup.isEnabled = manager?.supportsEffort ?? true
+        let listening = manager?.isListening(jelly) ?? false
+        listenButton.state = listening ? .on : .off
+        listenButton.title = listening ? "🎧 停止" : "🎧"
+        if listening, listenTimer == nil {
+            let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
+            RunLoop.main.add(t, forMode: .common)
+            listenTimer = t
+        } else if !listening {
+            listenTimer?.invalidate()
+            listenTimer = nil
+        }
         pcButton.state = runtime.pcControl ? .on : .off
         pcButton.title = runtime.pcControl ? "🖱 PC 操作: オン" : "🖱 PC 操作"
         stateLabel.stringValue = st
@@ -616,6 +633,16 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     @objc private func cancelTask() { runtime.cancel() }
     @objc private func renameAgent() { if let j = jelly { manager?.promptRename(j) } }
+
+    @objc private func toggleListen() {
+        if let j = jelly { manager?.toggleListening(j) }
+        refresh()
+    }
+
+    /// 入力欄のヒントを一時的に変える
+    func setInputHint(_ s: String) {
+        input.placeholder = s
+    }
 
     @objc private func togglePC() {
         let on = !runtime.pcControl

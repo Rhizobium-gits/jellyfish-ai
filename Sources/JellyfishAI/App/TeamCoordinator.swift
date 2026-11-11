@@ -422,6 +422,11 @@ final class TeamCoordinator {
             "name": ["type": "string", "description": "仲間の名前（役割がわかる短い名前。例: 調査係、レビュー係）"],
             "task": ["type": "string", "description": "最初に任せる作業（省略可）"],
          ]]],
+        ["name": "read_transcript",
+         "description": "ユーザーが「🎧 聞き取り」で拾ったシステムの音（会議・動画など）の文字起こしを読む。聞き取り中なら途中まで。since_line を渡すとその行より後だけ返す（リアルタイムの翻訳・要約に使う）。from に仲間の名前を渡すとその仲間の文字起こしを読む。",
+         "inputSchema": ["type": "object", "properties": [
+            "since_line": ["type": "number"], "from": ["type": "string"],
+         ]]],
         ["name": "wait_for_tasks",
          "description": "頼んだ作業が終わるまで待ち、結果を返す。task_ids を省略すると、まだ受け取っていない自分の依頼すべてを待つ。timeout_seconds を過ぎたら、その時点の状況を返す（もう一度呼べば続きを待てる）。",
          "inputSchema": ["type": "object", "properties": [
@@ -488,6 +493,20 @@ final class TeamCoordinator {
                 out["status"] = t.status.rawValue
             }
             ok(out)
+        case "read_transcript":
+            var target = caller
+            if let n = args["from"] as? String, !n.isEmpty {
+                guard let c = resolve(name: n, in: caller) else { fail("「\(n)」はチームにいません"); return }
+                target = c.record.id
+            }
+            let since = (args["since_line"] as? NSNumber)?.intValue ?? 0
+            guard let t = m.transcriptText(for: target, sinceLine: since) else {
+                fail("文字起こしがありません。ユーザーにチャットの「🎧」で聞き取りを始めてもらってください。")
+                return
+            }
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            ok(["file": t.path.replacingOccurrences(of: home, with: "~"), "listening": t.live,
+                "from_line": since, "next_line": since + t.lines.count, "lines": t.lines])
         case "wait_for_tasks":
             var ids = (args["task_ids"] as? [String]) ?? []
             if ids.isEmpty {
