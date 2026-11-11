@@ -85,8 +85,9 @@ struct ScreenContext {
             for (i, d) in displays.enumerated() {
                 let filter = SCContentFilter(display: d, excludingApplications: me, exceptingWindows: [])
                 let cfg = SCStreamConfiguration()
-                // 文字が読める解像度に（長辺 2560px まで）
-                let scale = min(2.0, 2560.0 / max(d.frame.width, d.frame.height))
+                // 文字が読めてトークンを使いすぎない解像度に：長辺 1568px まで、実際の画素より大きくはしない
+                // （画像のトークンはおよそ面積に比例。2560×1440 で約 4,700、1568×882 で約 1,800）
+                let scale = min(nativeScale(of: d.displayID), maxLongEdge / max(d.frame.width, d.frame.height))
                 cfg.width = Int(d.frame.width * scale)
                 cfg.height = Int(d.frame.height * scale)
                 cfg.showsCursor = false
@@ -98,6 +99,14 @@ struct ScreenContext {
             ctx.note = "画面の取得に失敗しました: \(error.localizedDescription)"
         }
         return ctx
+    }
+
+    static let maxLongEdge: CGFloat = 1568
+
+    /// そのディスプレイの 1 ポイントあたりの画素数（Retina = 2、外部の 1080p など = 1）
+    private static func nativeScale(of id: CGDirectDisplayID) -> CGFloat {
+        let s = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == id }
+        return s?.backingScaleFactor ?? 2.0
     }
 
     // MARK: -

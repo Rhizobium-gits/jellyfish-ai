@@ -136,6 +136,20 @@ final class JellyManager {
             self.chats[c.record.id]?.refresh()
         }
         let id = c.record.id
+        rt.mcpPolicy = { [weak self] text, cwd, loadedInSession in
+            let servers = ExternalMCP.serverNames(cwd: cwd)
+            let mode = self?.settings.externalMCP ?? .auto
+            switch mode {
+            case .always:
+                return .init(load: true, servers: servers, note: nil)
+            case .never:
+                return .init(load: false, servers: servers, note: ExternalMCP.notLoadedNote(servers, canLoad: false))
+            case .auto:
+                let named = ExternalMCP.mentioned(in: text, servers: servers)
+                if loadedInSession || !named.isEmpty { return .init(load: true, servers: servers, note: nil) }
+                return .init(load: false, servers: servers, note: ExternalMCP.notLoadedNote(servers, canLoad: true))
+            }
+        }
         rt.teamConfig = { [weak self, weak c, weak rt] in
             guard let self, let c, let rt else { return nil }
             return self.team?.runConfig(for: c, runtime: rt)

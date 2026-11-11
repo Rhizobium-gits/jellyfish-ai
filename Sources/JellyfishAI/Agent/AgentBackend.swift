@@ -22,6 +22,8 @@ struct AgentRunOptions {
     var appendSystemPrompt: String? = nil
     var allowedTools: [String] = []
     var env: [String: String] = [:]
+    /// ユーザー設定の MCP サーバー・claude.ai コネクタを読み込まない（--strict-mcp-config）
+    var strictMCPConfig = false
 }
 
 /// 実行中の 1 ターン

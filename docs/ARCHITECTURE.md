@@ -48,6 +48,12 @@ Framer Motion / CSS Animation の役割は Core Animation が担う（アニメ�
 - **claude の検出**：PATH・`~/.local/bin`・Homebrew・VS Code/Cursor 拡張同梱版の `--version` を比べて最新を使う。
 - **環境変数**：GUI アプリは PATH が最小限なので、ログインシェルの環境を一度取り込んでエージェントに渡す。
 
+## 2.4 外部 MCP は呼んだときだけ
+
+`AgentRuntime.submit` が毎ターン `mcpPolicy`（JellyManager）に指示文・作業フォルダ・「この会話ですでに読み込んだか」を渡して決める。読み込まないときは `--strict-mcp-config`（`--help` に有ることを確かめてから付ける）で Jellyfish の `--mcp-config` だけにし、`--append-system-prompt` に「読み込んでいない。必要なら名前を入れて頼み直してもらう」を足す。サーバー名は `~/.claude.json`（ユーザー設定・プロジェクト設定）と作業フォルダから上の `.mcp.json` のキーだけを読む（中身は読まない）。名前やカタカナ表記（ブレンダー・フィグマ等）が指示に出たら読み込み、その会話 ID を meta.json に覚えて続きのターンも読み込む。
+
+画面の添付は長辺 1568px まで（実画素より拡大しない）。PC 操作の `screen_capture` は 1 ポイント = 1 ピクセルのまま（現行モデルは長辺 2576px まで座標が画素と 1:1 なので、クリック位置の換算をしない）。
+
 ## 2.5 チーム（エージェント同士の分業）
 
 ```

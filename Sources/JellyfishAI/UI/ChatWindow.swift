@@ -380,6 +380,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             let shown = mates.prefix(3).joined(separator: "・") + (mates.count > 3 ? " ほか \(mates.count - 3) 体" : "")
             st += "  ·  👥 \(shown) とチーム"
         }
+        if running, !runtime.externalLoaded.isEmpty { st += "  ·  🧩 " + runtime.externalLoaded.joined(separator: "・") }
         if let l = manager?.listeningStatus(jelly) { st = "\(r.title) · " + l }
         screenPopup.selectItem(at: ScreenMode.allCases.firstIndex(of: manager?.settings.screenMode ?? .auto) ?? 0)
         modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 0)

@@ -241,13 +241,31 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             self?.manager.team?.refresh()
         })
         tm.addItem(.separator())
-        tm.addItem(.header("・クラゲを別のクラゲの隣に置くと線でつながり、同じチームになる"))
+        tm.addItem(.header("・クラゲを別のクラゲに近づけて離すと線でつながり、同じチームになる"))
+        tm.addItem(.header("・⇧ を押しながらドラッグでチームごと移動、⌥ を押しながら離すと切り離し"))
         tm.addItem(.header("・チームの仲間に作業を頼む / 新しい仲間を作って分担する（Claude Code の MCP ツール）"))
         tm.addItem(.header("・線の上の光：依頼（依頼元の色）と結果（依頼先の色）の受け渡し"))
         tm.addItem(.header("・線にポインタを置くと ✂︎ で切れる（右クリック > つながり でも可）"))
         tm.addItem(.header("・1 チーム最大 \(TeamCoordinator.maxTeamSize) 体、エージェントが作れるのは 2 段まで"))
         teamItem.submenu = tm
         menu.addItem(teamItem)
+
+        // ユーザーが Claude Code に設定している MCP サーバー（Figma・Blender など）を読み込むか
+        let extItem = NSMenuItem(title: "外部ツール（MCP）", action: nil, keyEquivalent: "")
+        let em = NSMenu()
+        em.autoenablesItems = false
+        for mode in ExternalMCPMode.allCases {
+            em.addItem(ClosureMenuItem(mode.label, checked: s.externalMCP == mode) { [weak self] in
+                self?.manager.updateSettings { $0.externalMCP = mode }
+            })
+        }
+        em.addItem(.separator())
+        let names = ExternalMCP.serverNames(cwd: FileManager.default.homeDirectoryForCurrentUser)
+        em.addItem(.header("設定済み: " + (names.isEmpty ? "なし" : names.joined(separator: ", ")) + "（＋ claude.ai のコネクタ）"))
+        em.addItem(.header("・読み込まないと 1 回あたり約 4,800 トークン減り、起動も速くなる"))
+        em.addItem(.header("・「呼んだときだけ」：指示に「Blender」「フィグマ」などの名前があると読み込み、同じ会話の続きでは読み込んだまま"))
+        extItem.submenu = em
+        menu.addItem(extItem)
 
         let login = ClosureMenuItem("ログイン時に自動起動", checked: LoginItem.isEnabled) { [weak self] in
             let want = !LoginItem.isEnabled

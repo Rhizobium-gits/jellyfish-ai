@@ -42,6 +42,18 @@ final class AgentRuntime {
     var onTurnEnded: ((AgentTurn) -> Void)?
     /// 実行ごとのチーム設定（MCP・system prompt）。nil を返せばチーム機能なしで動く
     var teamConfig: (() -> TeamCoordinator.RunConfig?)?
+    /// 外部の MCP サーバーをこのターンで読み込むか（指示文・作業フォルダ・この会話ですでに読み込んだか）
+    var mcpPolicy: ((String, URL, Bool) -> MCPDecision)?
+    struct MCPDecision {
+        let load: Bool
+        /// 設定されている外部サーバー（読み込まないときにエージェントへ伝える）
+        let servers: [String]
+        let note: String?
+    }
+    /// このターンで読み込んだ外部 MCP サーバー（空 = 読み込んでいない）
+    private(set) var externalLoaded: [String] = []
+    /// 外部 MCP を読み込んだ会話（同じ会話の続きでは読み込んだままにする）
+    private var externalMCPSession: String?
 
     private var handle: AgentHandle?
     private var pendingTools = 0
@@ -64,6 +76,7 @@ final class AgentRuntime {
         model = meta?.model
         effort = meta?.effort
         pcControl = meta?.pcControl ?? false
+        externalMCPSession = meta?.externalMCPSession
         turns = AgentRuntime.loadTurns(dir)
         // 前回アプリ終了時に実行中だったターンは中断扱い
         if let last = turns.last, !last.state.isTerminal && last.state != .error {
@@ -108,12 +121,22 @@ final class AgentRuntime {
             opts.allowedTools = t.allowedTools
             opts.env = t.env
         }
+        if let d = mcpPolicy?(text, cwd, externalMCPSession == sessionID) {
+            if d.load {
+                externalLoaded = d.servers.isEmpty ? ["claude.ai"] : d.servers
+                if externalMCPSession != sessionID { externalMCPSession = sessionID; saveMeta() }
+            } else {
+                externalLoaded = []
+                opts.strictMCPConfig = true
+                if let n = d.note { opts.appendSystemPrompt = [opts.appendSystemPrompt, n].compactMap { $0 }.joined(separator: "\n\n") }
+            }
+        }
         do {
             handle = try backend.run(prompt: text, sessionID: sessionID, resume: resume, cwd: cwd, logDir: dir,
                                      options: opts,
                                      onEvent: { [weak self] e in self?.handle(e) },
                                      onExit: { [weak self] status, err in self?.exited(status: status, stderr: err) })
-            AppLog.write("agent \(agentID.uuidString.prefix(8)) run resume=\(resume) model=\(model ?? "-") effort=\(effort ?? "-") cwd=\(cwd.path)")
+            AppLog.write("agent \(agentID.uuidString.prefix(8)) run resume=\(resume) model=\(model ?? "-") effort=\(effort ?? "-") external=\(opts.strictMCPConfig ? "off" : externalLoaded.joined(separator: ",")) cwd=\(cwd.path)")
         } catch {
             finish(.error, error: "起動に失敗しました: \(error.localizedDescription)")
         }
@@ -256,6 +279,7 @@ final class AgentRuntime {
         var sessionID: String; var sessionStarted: Bool; var cwd: String
         var model: String?; var effort: String?
         var pcControl: Bool?
+        var externalMCPSession: String?
     }
 
     private static func loadMeta(_ dir: URL) -> Meta? {
@@ -265,7 +289,7 @@ final class AgentRuntime {
 
     private func saveMeta() {
         let m = Meta(sessionID: sessionID, sessionStarted: sessionStarted, cwd: cwd.path, model: model, effort: effort,
-                     pcControl: pcControl)
+                     pcControl: pcControl, externalMCPSession: externalMCPSession)
         if let d = try? JSONEncoder().encode(m) { try? d.write(to: dir.appendingPathComponent("meta.json"), options: .atomic) }
     }
 

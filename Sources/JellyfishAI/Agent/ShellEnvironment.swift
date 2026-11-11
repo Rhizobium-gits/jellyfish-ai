@@ -75,6 +75,8 @@ struct ClaudeInstall {
     var supportsMCPConfig = false
     var supportsAppendSystemPrompt = false
     var supportsAllowedTools = false
+    /// `--strict-mcp-config`（--mcp-config 以外の MCP サーバーを読み込まない）があるか
+    var supportsStrictMCPConfig = false
 }
 
 /// claude 実行ファイルを探す。候補（PATH・標準インストール先・VS Code / Cursor 拡張に同梱）すべての
@@ -146,7 +148,8 @@ enum ClaudeLocator {
                              supportsEffort: help.contains("--effort"),
                              supportsMCPConfig: help.contains("--mcp-config"),
                              supportsAppendSystemPrompt: help.contains("--append-system-prompt"),
-                             supportsAllowedTools: help.contains("--allowedTools"))
+                             supportsAllowedTools: help.contains("--allowedTools"),
+                             supportsStrictMCPConfig: help.contains("--strict-mcp-config"))
     }
 
     private static func run(_ url: URL, _ args: [String], timeout: Double) -> String? {

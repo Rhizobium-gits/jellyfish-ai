@@ -70,6 +70,8 @@ struct AppSettings: Codable {
     var teamEnabled: Bool = true
     /// 「過去のセッション」から外した（アーカイブした）セッション ID。Claude Code の記録そのものは消さない
     var archivedSessions: [String] = []
+    /// ユーザーが設定している MCP サーバー（Figma・Blender など）と claude.ai のコネクタを読み込むか
+    var externalMCP: ExternalMCPMode = .auto
 
     init() {}
 
@@ -96,6 +98,7 @@ struct AppSettings: Codable {
         model = c.value(String.self, .model, d.model)
         teamEnabled = c.value(Bool.self, .teamEnabled, d.teamEnabled)
         archivedSessions = c.value([String].self, .archivedSessions, d.archivedSessions)
+        externalMCP = c.value(ExternalMCPMode.self, .externalMCP, d.externalMCP)
     }
 }
 

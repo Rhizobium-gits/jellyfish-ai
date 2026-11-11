@@ -38,15 +38,17 @@ final class ClaudeCodeBackend: AgentBackend {
         args += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
         if let m = options.model ?? model { args += ["--model", m] }
         if let e = options.effort, install.supportsEffort { args += ["--effort", e] }
+        // 外部の MCP サーバーを読み込まない（Jellyfish の --mcp-config だけになる）
+        if options.strictMCPConfig, install.supportsStrictMCPConfig { args += ["--strict-mcp-config"] }
         // チーム機能（--mcp-config と --allowedTools は値を複数取るので、後ろに別のオプションが続く並びにする）
         if let mcp = options.mcpConfig, install.supportsMCPConfig {
             args += ["--mcp-config", mcp.path]
             if install.supportsAllowedTools, !options.allowedTools.isEmpty {
                 args += ["--allowedTools", options.allowedTools.joined(separator: ",")]
             }
-            if let sp = options.appendSystemPrompt, install.supportsAppendSystemPrompt {
-                args += ["--append-system-prompt", sp]
-            }
+        }
+        if let sp = options.appendSystemPrompt, !sp.isEmpty, install.supportsAppendSystemPrompt {
+            args += ["--append-system-prompt", sp]
         }
         p.arguments = args
         p.currentDirectoryURL = cwd
