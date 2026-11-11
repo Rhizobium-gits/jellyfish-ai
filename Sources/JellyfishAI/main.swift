@@ -1,6 +1,10 @@
 import AppKit
 
 let args = CommandLine.arguments
+// claude の子プロセスとして MCP の中継役になるモード（チーム機能）
+if TeamBridge.handles(args) {
+    exit(TeamBridge.run(args))
+}
 if SnapshotTool.handles(args) {
     exit(SnapshotTool.run(args))
 }

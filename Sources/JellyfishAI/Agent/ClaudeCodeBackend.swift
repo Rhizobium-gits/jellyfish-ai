@@ -38,9 +38,19 @@ final class ClaudeCodeBackend: AgentBackend {
         args += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
         if let m = options.model ?? model { args += ["--model", m] }
         if let e = options.effort, install.supportsEffort { args += ["--effort", e] }
+        // チーム機能（--mcp-config と --allowedTools は値を複数取るので、後ろに別のオプションが続く並びにする）
+        if let mcp = options.mcpConfig, install.supportsMCPConfig {
+            args += ["--mcp-config", mcp.path]
+            if install.supportsAllowedTools, !options.allowedTools.isEmpty {
+                args += ["--allowedTools", options.allowedTools.joined(separator: ",")]
+            }
+            if let sp = options.appendSystemPrompt, install.supportsAppendSystemPrompt {
+                args += ["--append-system-prompt", sp]
+            }
+        }
         p.arguments = args
         p.currentDirectoryURL = cwd
-        p.environment = ShellEnvironment.shared.environment()
+        p.environment = ShellEnvironment.shared.environment().merging(options.env) { _, new in new }
         p.standardInput = FileHandle.nullDevice
 
         let out = Pipe(), err = Pipe()
@@ -189,6 +199,20 @@ final class StreamJSONParser {
 
     /// ツール呼び出しを 1 行の説明にする（パネルの「いま何をしているか」表示用）
     static func summarize(_ name: String, _ input: [String: Any]?) -> String {
+        // チーム機能のツールは日本語の 1 行に
+        if name.hasPrefix("mcp__jellyfish__") {
+            let short = { (s: String?) -> String in
+                let one = (s ?? "").replacingOccurrences(of: "\n", with: " ")
+                return one.count > 60 ? String(one.prefix(60)) + "…" : one
+            }
+            switch name.dropFirst("mcp__jellyfish__".count) {
+            case "assign_task": return "🤝 \(input?["to"] as? String ?? "仲間") に依頼: \(short(input?["task"] as? String))"
+            case "create_teammate": return "✨ 仲間「\(input?["name"] as? String ?? "")」を作る" + ((input?["task"] as? String).map { ": " + short($0) } ?? "")
+            case "wait_for_tasks": return "⏳ 仲間の結果を待っています"
+            case "list_team": return "👥 チームを確認"
+            default: break
+            }
+        }
         guard let input else { return name }
         let keys = ["command", "file_path", "path", "pattern", "query", "url", "description", "prompt"]
         for k in keys {

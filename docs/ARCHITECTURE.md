@@ -48,6 +48,21 @@ Framer Motion / CSS Animation の役割は Core Animation が担う（アニメ�
 - **claude の検出**：PATH・`~/.local/bin`・Homebrew・VS Code/Cursor 拡張同梱版の `--version` を比べて最新を使う。
 - **環境変数**：GUI アプリは PATH が最小限なので、ログインシェルの環境を一度取り込んでエージェントに渡す。
 
+## 2.5 チーム（エージェント同士の分業）
+
+```
+claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --append-system-prompt <チームの説明>
+   └─ stdio ─▶ JellyfishAI --mcp-bridge <bus.sock> <agentID>   （同じ実行ファイルの中継モード）
+                   └─ unix socket（データフォルダ、0600）─▶ TeamBus ─▶ TeamCoordinator（アプリ内）
+```
+
+- **MCP サーバーはアプリ側**：ブリッジは標準入出力とソケットを中継するだけで、JSON-RPC（initialize / tools/list / tools/call）は TeamCoordinator が処理する。どのエージェントからの呼び出しかはブリッジの hello で分かる
+- **ツール**：`list_team`、`assign_task`（すぐ task_id を返す。相手が作業中なら順番待ち）、`create_teammate`（呼んだクラゲの隣に出し、線でつなぎ、作業フォルダ・モデル・強さを引き継ぐ）、`wait_for_tasks`（最大 1800 秒待つ。過ぎたらその時点の状況を返し、もう一度呼べば続きを待てる）。待ちが長いので子プロセスに `MCP_TOOL_TIMEOUT` を渡す
+- **依頼の実行**：依頼先の次のターンとして `--resume` で送る（目印 `[Jellyfish チーム依頼 from: 名前]` を先頭に付け、チャットでは「📨 名前 からの依頼」と表示）。ターンが終わったら結果（stream-json の result）を依頼元へ返す
+- **つながり**：無向の辺（links.json）。つながりの塊が 1 チームで、チーム内なら隣でなくても頼める（光は線をたどる最短経路を流れる）。ドロップ時に体 1.15 個ぶん以内に別のクラゲがいればつなぐ
+- **描画**：LinkOverlay（ディスプレイごとの透明な重ね窓、クラゲより 1 段下のレベル、クリックは素通し）。線は CAShapeLayer の点線、依頼が流れている間だけ lineDashPhase を流す。光は CAKeyframeAnimation。静止中はアニメーションが無いので CPU を使わない。✂︎ は線の近くにポインタがあるときだけ出る小さなクリック可能パネル
+- **上限**：1 チーム 8 体、全体 20 体、作成の深さ 2（ユーザーのクラゲ = 0）。毎ターンの system prompt に今のチームと残り枠を書く
+
 ## 3. 保存場所
 
 `~/Library/Application Support/JellyfishAI/`
@@ -57,6 +72,8 @@ Framer Motion / CSS Animation の役割は Core Animation が担う（アニメ�
 | `settings.json` | ショートカット、見た目、大きさ、自動起動、権限モード、claude のパス等 |
 | `jellies.json` | クラゲ（番号・色・位置・状態・表示） |
 | `agents/<id>/meta.json` | セッション ID・作業フォルダ |
+| `links.json` | クラゲ同士のつながり |
+| `bus.sock` | チーム機能のソケット（0600） |
 | `agents/<id>/history.json` | 指示と結果の履歴 |
 | `agents/<id>/events.jsonl` | Claude Code の生イベント |
 | `app.log` | アプリのログ |
@@ -71,7 +88,8 @@ Framer Motion / CSS Animation の役割は Core Animation が担う（アニメ�
 | 2 AI 連携 | ⌘L で即入力、タップでチャットウィンドウ（閉じる/しまう/フルスクリーン/自由リサイズ）、Claude Code 接続（Auto Mode）、独立エージェントの並列実行、`--resume` で前の成果物に続けて指示、モデル・強さ（--model / --effort）をクラゲごとに切替、会話は Claude Code のセッション記録から表示、過去のセッション（VS Code・ターミナル製も含む）をメニューから呼び出し、ターミナルで同じセッションを開く | ✅ 実行→完了・エラー・再実行・続けて指示を確認 |
 | 3 状態の可視化 | Idle/Thinking/Working/Completed/Error/Cancelled のアニメーション、完了で静止 | ✅ 実イベントで遷移を確認 |
 | 4 画面認識 | 指示が画面を指していれば送信時に ScreenCaptureKit で撮影（Jellyfish のウィンドウは除外）、前面アプリ名・ウィンドウ名を添付、📎 添付を優先、対象ディスプレイ選択（使っていたアプリの画面 / 全ディスプレイ）、自動判定/毎回/しない | 🟡 実装済み・画面収録の権限付与後の実機確認待ち。AX（アクセシビリティ）で選択テキスト等を取るのは未 |
-| 5 仕上げ | 全クラゲの管理画面、設定画面、音声入力、アプリ終了後もエージェントを続ける常駐デーモン化、固定の署名 | 未着手 |
+| 5 チーム | 名前、隣に置くとつながる線、依頼と結果の受け渡しを線上で可視化、✂︎ で切る、エージェントが仲間を作って分担（MCP） | ✅ 実機で 4 体の分業（作成 → 並列 → レビュー → 統合）を確認 |
+| 6 拡張 | セッションのアーカイブ、メニューバーのアニメーション、ファイルのドロップ、PC 操作（アクセシビリティ）、システム音声の文字起こし・議事録、3D ドット絵、リアルなクラゲの動き、デスクトップごとの配置、管理画面（CPU/GPU）、ChatGPT 連携（API キー）、固定の署名 | 未着手 |
 
 ## 画面認識の流れ
 

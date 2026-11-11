@@ -141,6 +141,23 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         policy.submenu = pm
         menu.addItem(policy)
 
+        // エージェント同士の分業
+        let teamItem = NSMenuItem(title: "チーム（分業）", action: nil, keyEquivalent: "")
+        let tm = NSMenu()
+        tm.autoenablesItems = false
+        tm.addItem(ClosureMenuItem("エージェント同士の分業を使う", checked: s.teamEnabled) { [weak self] in
+            self?.manager.updateSettings { $0.teamEnabled.toggle() }
+            self?.manager.team?.refresh()
+        })
+        tm.addItem(.separator())
+        tm.addItem(.header("・クラゲを別のクラゲの隣に置くと線でつながり、同じチームになる"))
+        tm.addItem(.header("・チームの仲間に作業を頼む / 新しい仲間を作って分担する（Claude Code の MCP ツール）"))
+        tm.addItem(.header("・線の上の光：依頼（依頼元の色）と結果（依頼先の色）の受け渡し"))
+        tm.addItem(.header("・線にポインタを置くと ✂︎ で切れる（右クリック > つながり でも可）"))
+        tm.addItem(.header("・1 チーム最大 \(TeamCoordinator.maxTeamSize) 体、エージェントが作れるのは 2 段まで"))
+        teamItem.submenu = tm
+        menu.addItem(teamItem)
+
         let login = ClosureMenuItem("ログイン時に自動起動", checked: LoginItem.isEnabled) { [weak self] in
             let want = !LoginItem.isEnabled
             if let err = LoginItem.set(want) {

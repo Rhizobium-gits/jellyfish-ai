@@ -16,6 +16,8 @@ final class JellyManager {
     private var detached: [AgentRuntime] = []
     /// クラゲごとのチャットウィンドウ
     private var chats: [UUID: AgentChatController] = [:]
+    /// エージェント同士の分業（つながり・依頼・受け渡しの表示）
+    private(set) var team: TeamCoordinator?
 
     private var lastPointer = NSPoint(x: -1, y: -1)
     private var pointerIdleTicks = 0
@@ -43,8 +45,11 @@ final class JellyManager {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             self?.ensureOnScreen()
+            self?.team?.refresh()
         }
         save()
+        team = TeamCoordinator(manager: self, store: store)
+        team?.start()
     }
 
     private func makeRecord() -> JellyRecord {
@@ -125,6 +130,12 @@ final class JellyManager {
             guard let self, let c else { return }
             self.chats[c.record.id]?.refresh()
         }
+        let id = c.record.id
+        rt.teamConfig = { [weak self, weak c, weak rt] in
+            guard let self, let c, let rt else { return nil }
+            return self.team?.runConfig(for: c, runtime: rt)
+        }
+        rt.onTurnEnded = { [weak self] turn in self?.team?.turnEnded(agent: id, turn: turn) }
         // 前回の終了時に動いていた場合など、記録と状態がずれていたら記録側に合わせる
         if !rt.isRunning, let last = rt.lastTurn, c.record.state != last.state,
            !(c.record.state == .idle && last.state == .completed) {
@@ -158,8 +169,8 @@ final class JellyManager {
     }
 
     /// デモ録画・自動テスト用：チャットの入力欄に 1 文字ずつ打ち込んで送信する（jellyfish://type）
-    func typePrompt(_ text: String, into c: JellyController, cps: Double) {
-        if chats[c.record.id]?.isVisible != true { openChat(for: c) }
+    func typePrompt(_ text: String, into c: JellyController, cps: Double, quick: Bool = false) {
+        if chats[c.record.id]?.isVisible != true { openChat(for: c, quickCapture: quick) }
         chats[c.record.id]?.typeAndSubmit(text, cps: cps)
     }
 
@@ -235,6 +246,7 @@ final class JellyManager {
     /// クラゲを削除する。
     /// Phase 2: 実行中タスクがある場合はキャンセルするか継続するかを確認し、勝手にキャンセルしない。
     func remove(_ c: JellyController) {
+        team?.removeAgent(c.record.id)
         if let chat = chats.removeValue(forKey: c.record.id) {
             chat.window.orderOut(nil)
             chat.window.close()
@@ -246,9 +258,127 @@ final class JellyManager {
         }
         controllers.removeAll { $0 === c }
         c.despawn {}
+        team?.refresh()
         save()
         onChange?()
     }
+
+    // MARK: 名前
+
+    /// 他のクラゲと重ならない名前（重なれば「名前 2」「名前 3」…）
+    func uniqueName(_ base: String, excluding me: JellyController? = nil) -> String {
+        let used = Set(controllers.filter { $0 !== me }.map { $0.record.title.lowercased() })
+        if !used.contains(base.lowercased()) { return base }
+        var i = 2
+        while used.contains("\(base) \(i)".lowercased()) { i += 1 }
+        return "\(base) \(i)"
+    }
+
+    /// 名前を変える。空なら「Agent N」に戻す。問題があればその理由を返す
+    @discardableResult
+    func rename(_ c: JellyController, to raw: String) -> String? {
+        let n = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if n.count > 24 { return "名前は 24 文字までです" }
+        if !n.isEmpty, let other = controllers.first(where: { $0 !== c && $0.record.title.lowercased() == n.lowercased() }) {
+            return "「\(n)」は \(other.record.color.name) のクラゲが使っています"
+        }
+        c.update { $0.name = n.isEmpty ? nil : n }
+        c.panel.title = c.record.title
+        chats[c.record.id]?.refresh()
+        team?.refresh()
+        onChange?()
+        return nil
+    }
+
+    func promptRename(_ c: JellyController) {
+        let a = NSAlert()
+        a.messageText = "\(c.record.title)（\(c.record.color.name)）の名前"
+        a.informativeText = "エージェント同士はこの名前で呼び合います。空にすると「Agent \(c.record.number)」に戻ります。"
+        let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        f.stringValue = c.record.name ?? ""
+        f.placeholderString = "Agent \(c.record.number)"
+        a.accessoryView = f
+        a.addButton(withTitle: "変更")
+        a.addButton(withTitle: "キャンセル")
+        a.window.initialFirstResponder = f
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        if let err = rename(c, to: f.stringValue) {
+            let e = NSAlert()
+            e.messageText = "名前を変えられませんでした"
+            e.informativeText = err
+            e.runModal()
+        }
+    }
+
+    // MARK: チーム
+
+    /// エージェントが create_teammate で仲間を作る：呼んだクラゲの隣に出し、作業フォルダ・モデル・強さを引き継ぐ
+    func spawnTeammate(near parent: JellyController, name: String) -> JellyController? {
+        guard controllers.count < TeamCoordinator.maxAgents else { return nil }
+        if settings.allHidden { setAllHidden(false) }
+        if parent.record.hidden { setHidden(parent, false) }
+        var r = makeRecord()
+        r.name = name
+        r.parentID = parent.record.id
+        r.depth = (parent.record.depth ?? 0) + 1
+        r.origin = adjacentOrigin(near: parent)
+        let c = addController(r)
+        if let prt = runtimes[parent.record.id], let rt = runtimes[c.record.id] {
+            rt.changeFolder(prt.cwd)
+            rt.model = prt.model
+            rt.effort = prt.effort
+        }
+        c.show(animated: true)
+        save()
+        onChange?()
+        return c
+    }
+
+    /// 隣（体 1 つ分）の空いている場所。左 → 斜め → 上下の順に探す
+    private func adjacentOrigin(near p: JellyController) -> NSPoint {
+        let L = layout
+        let size = L.size
+        let o = p.panel.frame.origin
+        // 線と受け渡しの光が見えるよう、体 1.5 個ぶん離して置く
+        let sx = L.stepX * 1.5, sy = L.stepY * 1.35
+        let offsets: [(CGFloat, CGFloat)] = [(-sx, 0), (-sx * 0.6, -sy), (-sx * 0.6, sy), (0, -sy), (0, sy),
+                                             (-sx * 1.6, -sy), (-sx * 1.6, sy), (-2 * sx, 0), (sx * 0.5, -sy), (sx * 0.5, sy)]
+        let vf = (p.panel.screen ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        let others = controllers.filter { $0 !== p && !$0.record.hidden }.map { $0.panel.frame.origin } + [o]
+        for (dx, dy) in offsets {
+            let c = NSPoint(x: o.x + dx, y: o.y + dy)
+            let core = NSRect(origin: c, size: size).insetBy(dx: size.width * 0.2, dy: size.height * 0.2)
+            guard vf.contains(core) else { continue }
+            if others.contains(where: { hypot($0.x - c.x, $0.y - c.y) < size.width * 0.7 }) { continue }
+            return c
+        }
+        return freeSlotOrigin(excluding: nil)
+    }
+
+    func jellyDragged(_ c: JellyController) { team?.jellyDragged(c) }
+
+    /// デモ録画用：ドラッグと同じ経路で動かして、最後に置く（隣ならつながる）
+    func demoDrag(_ c: JellyController, by d: CGVector, duration: Double = 0.8) {
+        let start = c.panel.frame.origin
+        let steps = 24
+        c.avatar.dragBegan()
+        for i in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration * Double(i) / Double(steps)) { [weak self, weak c] in
+                guard let self, let c else { return }
+                let t = Double(i) / Double(steps)
+                let e = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+                c.panel.setFrameOrigin(NSPoint(x: start.x + d.dx * e, y: start.y + d.dy * e))
+                self.jellyDragged(c)
+                if i == steps {
+                    c.avatar.dragEnded()
+                    c.update { $0.origin = c.panel.frame.origin }
+                    self.jellyDropped(c)
+                }
+            }
+        }
+    }
+    func jellyDropped(_ c: JellyController) { team?.jellyDropped(c) }
 
     func controller(number: Int) -> JellyController? { controllers.first { $0.record.number == number } }
 
@@ -260,6 +390,7 @@ final class JellyManager {
         for c in controllers where !c.record.hidden {
             hidden ? c.hide() : c.show(animated: true)
         }
+        team?.refresh()
         onChange?()
     }
 
@@ -268,6 +399,7 @@ final class JellyManager {
     func setHidden(_ c: JellyController, _ hidden: Bool) {
         c.update { $0.hidden = hidden }
         if hidden { c.hide() } else if !settings.allHidden { c.show(animated: true) }
+        team?.refresh()
         onChange?()
     }
 
@@ -328,6 +460,7 @@ final class JellyManager {
             chats[r.id]?.attach(jelly: n)
             if !settings.allHidden && !r.hidden { n.show(animated: true) }
         }
+        team?.refresh()
         save()
         onChange?()
     }
@@ -394,10 +527,11 @@ final class JellyManager {
         }
         pointerIdleTicks = 0
         lastPointer = p
-        var claimed = false
+        var hovered: JellyController?
         for c in controllers.reversed() {
-            if c.updatePointer(p, allowed: !claimed) { claimed = true }
+            if c.updatePointer(p, allowed: hovered == nil) { hovered = c }
         }
+        team?.pointerMoved(p, over: hovered)
     }
 
     // MARK: イベント
@@ -411,6 +545,7 @@ final class JellyManager {
     func shutdown() {
         for rt in runtimes.values where rt.isRunning { rt.cancel() }
         for rt in detached where rt.isRunning { rt.cancel() }
+        team?.shutdown()
         save()
     }
 
@@ -445,6 +580,20 @@ final class JellyManager {
             items.append(.separator())
         }
         items.append(ClosureMenuItem("チャットを開く…") { [weak self, weak c] in if let c { self?.openChat(for: c) } })
+        items.append(ClosureMenuItem("名前を変える…") { [weak self, weak c] in if let c { self?.promptRename(c) } })
+        if let team, !team.neighbors(r.id).isEmpty {
+            let li = NSMenuItem(title: "つながり", action: nil, keyEquivalent: "")
+            let lm = NSMenu()
+            lm.autoenablesItems = false
+            if let p = team.pendingDescription(for: r.id) { lm.addItem(.header(p)) }
+            for n in team.neighbors(r.id) {
+                lm.addItem(ClosureMenuItem("✂︎ \(team.name(n)) とのつながりを切る") { [weak team] in team?.unlink(r.id, n) })
+            }
+            lm.addItem(.separator())
+            lm.addItem(ClosureMenuItem("すべてのつながりを切る") { [weak team] in team?.unlinkAll(r.id) })
+            li.submenu = lm
+            items.append(li)
+        }
         if let rt = runtimes[c.record.id], rt.isRunning {
             items.append(ClosureMenuItem("作業をキャンセル") { [weak rt] in rt?.cancel() })
         }

@@ -66,6 +66,10 @@ struct AppSettings: Codable {
     var permissionMode: String = "auto"
     /// 使うモデル（空なら Claude Code の既定）
     var model: String = ""
+    /// エージェント同士の分業（線でつながった仲間に頼む・仲間を作る）を使うか
+    var teamEnabled: Bool = true
+    /// 「過去のセッション」から外した（アーカイブした）セッション ID。Claude Code の記録そのものは消さない
+    var archivedSessions: [String] = []
 
     init() {}
 
@@ -90,6 +94,8 @@ struct AppSettings: Codable {
         claudePath = c.value(String.self, .claudePath, d.claudePath)
         permissionMode = c.value(String.self, .permissionMode, d.permissionMode)
         model = c.value(String.self, .model, d.model)
+        teamEnabled = c.value(Bool.self, .teamEnabled, d.teamEnabled)
+        archivedSessions = c.value([String].self, .archivedSessions, d.archivedSessions)
     }
 }
 
@@ -104,9 +110,25 @@ struct JellyRecord: Codable, Identifiable {
     var hidden: Bool
     var state: AgentState
     var createdAt: Date
+    /// ユーザー（または仲間を作ったエージェント）が付けた名前。nil なら「Agent N」
+    var name: String?
+    /// エージェントが create_teammate で作った場合の作成元と、作成の深さ（ユーザーが作ったものは 0）
+    var parentID: UUID?
+    var depth: Int?
 
     var color: JellyColor { Palette.color(colorIndex) }
-    var title: String { "Agent \(number)" }
+    var title: String { name ?? "Agent \(number)" }
+}
+
+/// クラゲ同士のつながり（無向）。同じつながりの塊が 1 つのチームになる
+struct JellyLink: Codable, Hashable {
+    let a: UUID
+    let b: UUID
+    init(_ x: UUID, _ y: UUID) {
+        if x.uuidString < y.uuidString { a = x; b = y } else { a = y; b = x }
+    }
+    func contains(_ id: UUID) -> Bool { a == id || b == id }
+    func other(_ id: UUID) -> UUID { a == id ? b : a }
 }
 
 private extension KeyedDecodingContainer {
@@ -135,6 +157,14 @@ final class Store {
     let dir: URL
     private var settingsURL: URL { dir.appendingPathComponent("settings.json") }
     private var jelliesURL: URL { dir.appendingPathComponent("jellies.json") }
+    private var linksURL: URL { dir.appendingPathComponent("links.json") }
+
+    func loadLinks() -> [JellyLink] {
+        guard let data = try? Data(contentsOf: linksURL) else { return [] }
+        return (try? JSONDecoder().decode([JellyLink].self, from: data)) ?? []
+    }
+
+    func save(links: [JellyLink]) { write(links, to: linksURL) }
 
     init() {
         dir = AppPaths.dataDir

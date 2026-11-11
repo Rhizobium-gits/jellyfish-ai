@@ -26,11 +26,17 @@ protocol Avatar: AnyObject {
     func pressBegan(duration: Double)
     func pressCancelled()
     func teardown()
+    /// 体の中心（ウィンドウローカル pt、左下原点）。つながりの線はここから引く
+    var anchor: CGPoint { get }
+    /// 名前ラベルを置く高さ（ウィンドウローカル pt）
+    var labelY: CGFloat { get }
 }
 
 extension Avatar {
     func pressBegan(duration: Double) {}
     func pressCancelled() {}
+    var anchor: CGPoint { CGPoint(x: size.width / 2, y: size.height / 2) }
+    var labelY: CGFloat { size.height * 0.12 }
 }
 
 enum AvatarStyle: String, Codable, CaseIterable {

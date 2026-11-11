@@ -17,6 +17,11 @@ struct AgentRunOptions {
     var model: String?
     /// low / medium / high / xhigh / max。nil なら既定
     var effort: String?
+    /// チーム機能：Jellyfish の MCP サーバー設定・追加の system prompt・事前許可するツール・環境変数
+    var mcpConfig: URL? = nil
+    var appendSystemPrompt: String? = nil
+    var allowedTools: [String] = []
+    var env: [String: String] = [:]
 }
 
 /// 実行中の 1 ターン

@@ -10,7 +10,7 @@
 # - 撮影するプロセス（ターミナル / VS Code）に「画面収録」の許可が必要
 set -e
 cd "$(dirname "$0")/../.."
-takes=(${@:-basic parallel states})
+takes=(${@:-basic parallel states team})
 [[ -d dist/JellyfishAI.app ]] || scripts/build.sh
 mkdir -p .build ~/jellyfish-demo
 swiftc -O scripts/demo/recorder.swift -o .build/recorder
@@ -20,6 +20,10 @@ for name in $takes; do
   data="$PWD/.build/demo-data/$name"
   rm -rf "$data" ".build/demo-frames/$name"; mkdir -p "$data"
   cp scripts/demo/seed/$name/*.json "$data/"
+  # 前の録画で覚えたチャットウィンドウの位置・大きさを消す（シードのクラゲは毎回同じ ID）
+  for id in $(grep -oE '[0-9A-F]{8}-[0-9A-F-]{27}' scripts/demo/seed/$name/jellies.json); do
+    defaults delete ai.jellyfish.desktop "NSWindow Frame JellyfishChat-$id" 2>/dev/null || true
+  done
   open --env JELLYFISH_DATA_DIR="$data" dist/JellyfishAI.app
   .build/recorder "scripts/demo/$name.json" ".build/demo-frames/$name"
   pkill -x JellyfishAI || true

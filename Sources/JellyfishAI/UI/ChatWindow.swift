@@ -57,6 +57,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private let retryButton = NSButton(title: "再実行", target: nil, action: nil)
     private let folderButton = NSButton(title: "", target: nil, action: nil)
     private let terminalButton = NSButton(title: "Claude Code で開く", target: nil, action: nil)
+    private let renameButton = NSButton(title: "名前", target: nil, action: nil)
     private let transcript = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
     private let transcriptScroll = NSScrollView()
     private let input = PromptTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 44))
@@ -137,20 +138,22 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         stateLabel.lineBreakMode = .byTruncatingTail
         stateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         dot.imageScaling = .scaleNone
-        for b in [cancelButton, retryButton, folderButton, terminalButton] {
+        for b in [cancelButton, retryButton, folderButton, terminalButton, renameButton] {
             b.bezelStyle = .accessoryBarAction
             b.controlSize = .small
             b.font = .systemFont(ofSize: 11.5)
             b.target = self
         }
         cancelButton.action = #selector(cancelTask)
+        renameButton.action = #selector(renameAgent)
+        renameButton.toolTip = "このエージェントの名前を変える（仲間どうしはこの名前で呼び合います）"
         retryButton.action = #selector(retryTask)
         folderButton.action = #selector(chooseFolder)
         folderButton.toolTip = "作業フォルダを変更"
         terminalButton.action = #selector(openInTerminal)
         terminalButton.toolTip = "同じセッションをターミナルの claude --resume で開く"
 
-        let titleRow = NSStackView(views: [dot, titleLabel, NSView(), retryButton, cancelButton])
+        let titleRow = NSStackView(views: [dot, titleLabel, NSView(), renameButton, retryButton, cancelButton])
         titleRow.orientation = .horizontal
         titleRow.spacing = 8
         let infoRow = NSStackView(views: [stateLabel])
@@ -336,6 +339,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         if running, let a = runtime.activity { st += " — \(a)" }
         if capturing { st = "\(r.title) · 📷 画面を取り込んでいます…" }
         if let m = runtime.activeModel { st += "  ·  \(m)" }
+        if let p = manager?.team?.pendingDescription(for: r.id) { st += "  ·  \(p)" }
         screenPopup.selectItem(at: ScreenMode.allCases.firstIndex(of: manager?.settings.screenMode ?? .auto) ?? 0)
         modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 0)
         effortPopup.selectItem(at: AgentChatController.efforts.firstIndex { $0.value == runtime.effort } ?? 0)
@@ -389,9 +393,17 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         for m in messages {
             switch m.role {
             case .user:
-                out.append(caption("あなた", .secondaryLabelColor))
                 var text = m.text
                 var notes: [String] = []
+                // 仲間のエージェントからの依頼（TeamCoordinator が付けた目印）
+                if text.hasPrefix(TeamCoordinator.requestMarker), let end = text.range(of: "]\n") {
+                    let from = String(text[text.index(text.startIndex, offsetBy: TeamCoordinator.requestMarker.count)..<end.lowerBound])
+                    text = String(text[end.upperBound...])
+                    if let f = text.range(of: TeamCoordinator.requestFooter) { text = String(text[..<f.lowerBound]) }
+                    out.append(caption("📨 \(from) からの依頼", accent))
+                } else {
+                    out.append(caption("あなた", .secondaryLabelColor))
+                }
                 if let r = text.range(of: ScreenContext.marker) {
                     let block = String(text[r.upperBound...])
                     text = String(text[..<r.lowerBound])
@@ -563,6 +575,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     }
 
     @objc private func cancelTask() { runtime.cancel() }
+    @objc private func renameAgent() { if let j = jelly { manager?.promptRename(j) } }
     @objc private func retryTask() { runtime.retry() }
 
     @objc private func chooseFolder() {

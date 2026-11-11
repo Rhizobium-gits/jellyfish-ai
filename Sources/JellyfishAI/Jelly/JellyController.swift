@@ -104,6 +104,7 @@ final class JellyController: NSObject {
         panel.setFrameOrigin(origin)
         if persist { update { $0.origin = origin } }
         (avatar as? RealisticAvatar)?.windowMoved()
+        manager?.team?.refresh()
     }
 
     func despawn(_ done: @escaping () -> Void) {
@@ -135,6 +136,15 @@ final class JellyController: NSObject {
         if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
         avatar.pointerMoved(inside: inside, local: local)
         return inside
+    }
+
+    /// 体の中心（グローバル座標）
+    var anchorPoint: CGPoint {
+        CGPoint(x: panel.frame.minX + avatar.anchor.x, y: panel.frame.minY + avatar.anchor.y)
+    }
+    /// 名前ラベルの上端中央（グローバル座標）
+    var labelPoint: CGPoint {
+        CGPoint(x: panel.frame.minX + avatar.anchor.x, y: panel.frame.minY + avatar.labelY)
     }
 
     /// デモ録画用：長押しと同じ見た目・動作（jellyfish://press）
@@ -181,6 +191,7 @@ final class JellyController: NSObject {
         dragged = true
         panel.setFrameOrigin(NSPoint(x: dragStartOrigin.x + dx, y: dragStartOrigin.y + dy))
         (avatar as? RealisticAvatar)?.windowMoved()
+        manager?.jellyDragged(self)
     }
 
     func mouseUp(_ e: NSEvent) {
@@ -193,6 +204,7 @@ final class JellyController: NSObject {
         if dragged {
             avatar.dragEnded()
             update { $0.origin = panel.frame.origin }
+            manager?.jellyDropped(self)
         } else {
             avatar.poke()
             manager?.jellyClicked(self)

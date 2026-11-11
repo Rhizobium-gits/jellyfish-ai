@@ -299,6 +299,11 @@ final class PixelAvatar: Avatar {
 
     // MARK: - 操作
 
+    /// 体（足を除く）の中心：キャンバスの上から 6 行目あたり
+    var anchor: CGPoint { CGPoint(x: size.width / 2, y: (PixelAvatar.bottomMarginCells + 6) * P) }
+    /// 足のすぐ下
+    var labelY: CGFloat { PixelAvatar.bottomMarginCells * P + 0.6 * P }
+
     func hitTest(_ p: CGPoint) -> Bool {
         let dy = currentY(floatLayer) + currentY(hopLayer)
         let base = PixelAvatar.bottomMarginCells * P

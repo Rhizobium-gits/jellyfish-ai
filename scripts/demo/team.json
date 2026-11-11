@@ -1,0 +1,69 @@
+{
+ "region": [
+  1060,
+  40,
+  860,
+  740
+ ],
+ "scale": 2,
+ "fps": 20,
+ "dataDir": ".build/demo-data/team",
+ "steps": [
+  {
+   "delay": 0.8,
+   "url": "jellyfish://folder?agent=1&path=~%2Fjellyfish-demo"
+  },
+  {
+   "delay": 0.1,
+   "url": "jellyfish://folder?agent=2&path=~%2Fjellyfish-demo"
+  },
+  {
+   "delay": 0.8,
+   "mark": "move",
+   "url": "jellyfish://move?agent=2&dx=-40&dy=-60"
+  },
+  {
+   "delay": 2.2,
+   "mark": "type",
+   "url": "jellyfish://type?agent=1&quick=1&cps=16&text=%E4%BB%B2%E9%96%93%E3%82%92%202%20%E4%BA%BA%E4%BD%9C%E3%81%A3%E3%81%A6%E3%80%81%E3%80%8C%E6%98%A5%E3%80%8D%E3%81%A8%E3%80%8C%E5%86%AC%E3%80%8D%E3%81%AE%E7%9F%AD%E3%81%84%E8%A9%A9%E3%82%92%201%20%E3%81%A4%E3%81%9A%E3%81%A4%E6%9B%B8%E3%81%84%E3%81%A6%E3%82%82%E3%82%89%E3%81%A3%E3%81%A6%E3%80%82%E3%81%A7%E3%81%8D%E3%81%9F%E3%82%89%E3%83%AC%E3%83%93%E3%83%A5%E3%83%BC%E4%BF%82%E3%81%AB%E8%89%AF%E3%81%84%E6%96%B9%E3%82%92%E9%81%B8%E3%82%93%E3%81%A7%E3%82%82%E3%82%89%E3%81%84%E3%80%81%E7%B5%90%E6%9E%9C%E3%82%92%203%20%E8%A1%8C%E3%81%A7%E6%95%99%E3%81%88%E3%81%A6"
+  },
+  {
+   "wait": {
+    "agent": 1,
+    "state": [
+     "thinking",
+     "working"
+    ]
+   },
+   "timeout": 30,
+   "mark": "submitted"
+  },
+  {
+   "wait": {
+    "agent": 1,
+    "state": [
+     "completed",
+     "error",
+     "cancelled"
+    ]
+   },
+   "timeout": 480,
+   "mark": "completed"
+  },
+  {
+   "delay": 2.0,
+   "mark": "tap",
+   "url": "jellyfish://open?agent=1"
+  },
+  {
+   "delay": 4.0,
+   "mark": "cut",
+   "url": "jellyfish://unlink?a=1&b=2&scissors=1"
+  },
+  {
+   "delay": 2.5,
+   "mark": "end",
+   "stop": true
+  }
+ ]
+}

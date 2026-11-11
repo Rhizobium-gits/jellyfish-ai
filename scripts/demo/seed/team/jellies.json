@@ -1,0 +1,28 @@
+[
+ {
+  "colorIndex": 0,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "7EA70000-0000-4000-8000-000000000001",
+  "number": 1,
+  "origin": [
+   1735,
+   760
+  ],
+  "state": "idle",
+  "name": "リーダー"
+ },
+ {
+  "colorIndex": 1,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "7EA70000-0000-4000-8000-000000000002",
+  "number": 2,
+  "origin": [
+   1820,
+   900
+  ],
+  "state": "idle",
+  "name": "レビュー係"
+ }
+]

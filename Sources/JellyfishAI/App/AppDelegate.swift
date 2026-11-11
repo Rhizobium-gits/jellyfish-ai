@@ -83,6 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   jellyfish://new[?chat=0&cwd=~/dir]    新しいクラゲ（chat=0 で入力欄を開かない、cwd で作業フォルダ）
     ///   jellyfish://type?agent=2&text=...     入力欄に 1 文字ずつ打ち込んで送信（デモ録画用、cps=打鍵/秒）
     ///   jellyfish://press?agent=2             長押しと同じ動作（デモ録画用）
+    ///   jellyfish://rename?agent=2&name=調査係  名前を変える（空で Agent N に戻す）
+    ///   jellyfish://link?a=2&b=3 | unlink     2 体をつなぐ / 切る
     ///   jellyfish://toggle | show | hide      全体の表示切替
     ///   jellyfish://arrange                   右端に並べ直す
     ///   jellyfish://state?agent=2&s=working   状態を設定（Phase 1 ではプレビュー用）
@@ -112,10 +114,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "type":
             // テスト用：jellyfish://type?agent=2&text=...&cps=14 で入力欄に打ち込んでから送信
             if let c = agent, let text = param("text") {
-                manager.typePrompt(text, into: c, cps: param("cps").flatMap(Double.init) ?? 14)
+                manager.typePrompt(text, into: c, cps: param("cps").flatMap(Double.init) ?? 14, quick: param("quick") == "1")
             }
         case "press":
             if let c = agent { c.simulateLongPress() }
+        case "rename":
+            if let c = agent { let err = manager.rename(c, to: param("name") ?? ""); AppLog.write("rename -> \(err ?? "ok")") }
+        case "link", "unlink":
+            // jellyfish://link?a=2&b=3 でつなぐ / unlink で切る
+            if let a = param("a").flatMap(Int.init).flatMap({ manager.controller(number: $0) }),
+               let b = param("b").flatMap(Int.init).flatMap({ manager.controller(number: $0) }) {
+                if url.host == "link" { manager.team?.link(a.record.id, b.record.id) }
+                else if param("scissors") == "1" { manager.team?.cutWithScissors(a.record.id, b.record.id) }
+                else { manager.team?.unlink(a.record.id, b.record.id) }
+            }
+        case "folder":
+            if let c = agent, let p = param("path"), let rt = manager.runtime(for: c) {
+                rt.changeFolder(URL(fileURLWithPath: (p as NSString).expandingTildeInPath, isDirectory: true))
+            }
+        case "move":
+            // デモ録画用：jellyfish://move?agent=2&dx=-120&dy=40 でドラッグしたように動かして置く
+            if let c = agent {
+                manager.demoDrag(c, by: CGVector(dx: param("dx").flatMap(Double.init) ?? 0, dy: param("dy").flatMap(Double.init) ?? 0))
+            }
         case "toggle": manager.toggleAllHidden()
         case "show": manager.setAllHidden(false)
         case "hide": manager.setAllHidden(true)

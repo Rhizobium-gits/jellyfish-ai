@@ -71,6 +71,10 @@ struct ClaudeInstall {
     let supportsPermissionPrompts: Bool
     /// `--effort` があるか
     let supportsEffort: Bool
+    /// チーム機能に使う `--mcp-config` / `--append-system-prompt` / `--allowedTools` があるか
+    var supportsMCPConfig = false
+    var supportsAppendSystemPrompt = false
+    var supportsAllowedTools = false
 }
 
 /// claude 実行ファイルを探す。候補（PATH・標準インストール先・VS Code / Cursor 拡張に同梱）すべての
@@ -139,7 +143,10 @@ enum ClaudeLocator {
         return ClaudeInstall(url: url, version: parts, versionString: token,
                              supportsAutoMode: autoMode,
                              supportsPermissionPrompts: help.contains("--permission-prompts"),
-                             supportsEffort: help.contains("--effort"))
+                             supportsEffort: help.contains("--effort"),
+                             supportsMCPConfig: help.contains("--mcp-config"),
+                             supportsAppendSystemPrompt: help.contains("--append-system-prompt"),
+                             supportsAllowedTools: help.contains("--allowedTools"))
     }
 
     private static func run(_ url: URL, _ args: [String], timeout: Double) -> String? {

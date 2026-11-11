@@ -36,6 +36,10 @@ final class AgentRuntime {
 
     var onState: ((AgentState) -> Void)?
     var onUpdate: (() -> Void)?
+    /// ターンが終わったとき（チームの依頼の結果を返すのに使う）
+    var onTurnEnded: ((AgentTurn) -> Void)?
+    /// 実行ごとのチーム設定（MCP・system prompt）。nil を返せばチーム機能なしで動く
+    var teamConfig: (() -> TeamCoordinator.RunConfig?)?
 
     private var handle: AgentHandle?
     private var pendingTools = 0
@@ -94,9 +98,16 @@ final class AgentRuntime {
         onUpdate?()
 
         let resume = sessionStarted
+        var opts = AgentRunOptions(model: model, effort: effort)
+        if let t = teamConfig?() {
+            opts.mcpConfig = t.mcpConfig
+            opts.appendSystemPrompt = t.systemPrompt
+            opts.allowedTools = t.allowedTools
+            opts.env = t.env
+        }
         do {
             handle = try backend.run(prompt: text, sessionID: sessionID, resume: resume, cwd: cwd, logDir: dir,
-                                     options: AgentRunOptions(model: model, effort: effort),
+                                     options: opts,
                                      onEvent: { [weak self] e in self?.handle(e) },
                                      onExit: { [weak self] status, err in self?.exited(status: status, stderr: err) })
             AppLog.write("agent \(agentID.uuidString.prefix(8)) run resume=\(resume) model=\(model ?? "-") effort=\(effort ?? "-") cwd=\(cwd.path)")
@@ -189,6 +200,7 @@ final class AgentRuntime {
         saveTurns()
         onState?(s)
         onUpdate?()
+        if let t = turns.last { onTurnEnded?(t) }
     }
 
     // MARK: - Claude Code のセッション記録

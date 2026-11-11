@@ -162,3 +162,20 @@ row = sorted(jellies(ev["loop"]), key=lambda w: w["x"])
 names = ["待機", "考え中", "作業中", "完了", "エラー", "キャンセル"]
 labels = [(w["x"] + w["w"] / 2, w["y"] + w["h"] + 4, s) for w, s in zip(row, names)]
 render("states", "states.gif", ev["loop"]["t"], ev["loop"]["t"] + 4.0, [], labels=labels)
+
+# ---- 4. チーム（分業） -------------------------------------------------------
+if os.path.exists(os.path.join(SRC, "team", "timeline.json")):
+    d, tl, ev = load("team")
+    first = lambda prefix: min((e["t"] for e in tl["events"] if e["mark"].startswith(prefix)), default=None)
+    caps = [(0, "隣に置くと線でつながる（同じチーム）"),
+            (ev["type"]["t"], "リーダーに「仲間を作って分担して」と指示")]
+    if first("state:3:idle"): caps.append((first("state:3:idle"), "エージェントが仲間を作り、線を通して作業を頼む"))
+    done = [t for t in (first("state:3:completed"), first("state:4:completed")) if t]
+    if done: caps.append((min(done), "結果が線を通って戻ってくる"))
+    rv = [e["t"] for e in tl["events"] if e["mark"] == "state:2:thinking"]
+    if rv: caps.append((rv[0], "レビュー係に読み比べてもらう"))
+    caps += [(ev["completed"]["t"], "リーダーが結果をまとめて完了"),
+             (ev["tap"]["t"], "タップで結果を開く"),
+             (ev["cut"]["t"], "線の ✂ でつながりを切る")]
+    leader = [w for w in jellies(ev["tap"]) if w["w"] < 200]
+    render("team", "demo-team.gif", ev["move"]["t"] - 0.8, ev["end"]["t"], caps)
