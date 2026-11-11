@@ -17,6 +17,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // 同じデータフォルダを 2 つのプロセスで使わない（.app の外から起動した開発用ビルドでも効くようにロックファイルで）
+        if !AppPaths.acquireInstanceLock() {
+            AppLog.write("another instance is using \(AppPaths.dataDir.path); exiting")
+            NSApp.terminate(nil)
+            return
+        }
+
         ShellEnvironment.shared.prefetch()
         installMainMenu()
         let store = Store()

@@ -151,6 +151,17 @@ enum AppPaths {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
+
+    private static var lockFD: Int32 = -1
+
+    /// このデータフォルダの排他ロック（プロセスが終われば OS が外す）
+    static func acquireInstanceLock() -> Bool {
+        let fd = open(dataDir.appendingPathComponent(".instance.lock").path, O_CREAT | O_RDWR, 0o600)
+        guard fd >= 0 else { return true }
+        if flock(fd, LOCK_EX | LOCK_NB) != 0 { close(fd); return false }
+        lockFD = fd
+        return true
+    }
 }
 
 final class Store {

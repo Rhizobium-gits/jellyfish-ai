@@ -16,6 +16,41 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
         item.menu = menu
+        startAnimation()
+    }
+
+    // MARK: アイコンのアニメーション（待機 = ゆっくり上下とまばたき、考え中 = 「…」、作業中 = 歩く）
+
+    private var animTimer: Timer?
+    private var tick = 0
+
+    private func startAnimation() {
+        let t = Timer(timeInterval: 1.0 / 6.0, repeats: true) { [weak self] _ in self?.animate() }
+        t.tolerance = 0.05
+        RunLoop.main.add(t, forMode: .common)
+        animTimer = t
+    }
+
+    private func animate() {
+        tick += 1
+        let states = manager.controllers.map(\.record.state)
+        var p = MenuImages.StatusPose()
+        if states.contains(.working) {
+            p.legs = tick % 2 == 0 ? 1 : 2
+            p.lift = tick % 4 < 2 ? 1 : 0
+            p.arms = tick % 4 < 2
+        } else if states.contains(.thinking) {
+            p.dots = (tick / 2) % 4
+            p.lift = (tick / 6) % 2
+        } else {
+            // 6fps のうち 3 コマごとに判定（実質 2fps）。2 秒ごとに上下、たまにまばたき
+            if tick % 3 != 0 { return }
+            let slow = tick / 3
+            p.lift = (slow / 4) % 2
+            p.blink = slow % 11 == 0
+        }
+        let img = MenuImages.statusFrame(p)
+        if item.button?.image !== img { item.button?.image = img }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -42,7 +77,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         rel.locale = Locale(identifier: "ja_JP")
         rel.unitsStyle = .short
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let sessions = ClaudeSessions.recent(limit: 20)
+        let archived = Set(s.archivedSessions)
+        let all = ClaudeSessions.recent(limit: 20 + archived.count)
+        let sessions = Array(all.filter { !archived.contains($0.id) }.prefix(20))
         if sessions.isEmpty { pastMenu.addItem(.header("（まだありません）")) }
         for info in sessions {
             let folder = (info.cwd ?? "").replacingOccurrences(of: home, with: "~")
@@ -57,6 +94,39 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             attr.append(NSAttributedString(string: "\(folder)  ·  \(when)", attributes: [.font: NSFont.menuFont(ofSize: 10.5), .foregroundColor: NSColor.secondaryLabelColor]))
             it.attributedTitle = attr
             pastMenu.addItem(it)
+            // ⌥ を押している間は「アーカイブ」に変わる（Claude Code の記録そのものは消さない）
+            let alt = ClosureMenuItem("") { [weak self] in self?.manager.setArchived(info.id, true) }
+            let altAttr = NSMutableAttributedString(string: "🗄 アーカイブ: \(title)\n", attributes: [.font: NSFont.menuFont(ofSize: 13)])
+            altAttr.append(NSAttributedString(string: "一覧から外す（記録は残る）", attributes: [.font: NSFont.menuFont(ofSize: 10.5), .foregroundColor: NSColor.secondaryLabelColor]))
+            alt.attributedTitle = altAttr
+            alt.isAlternate = true
+            alt.keyEquivalentModifierMask = [.option]
+            pastMenu.addItem(alt)
+        }
+        pastMenu.addItem(.separator())
+        pastMenu.addItem(.header("⌥ を押しながら選ぶとアーカイブ"))
+        let archivedInfos = all.filter { archived.contains($0.id) }
+        if !s.archivedSessions.isEmpty {
+            let arch = NSMenuItem(title: "アーカイブ済み（\(s.archivedSessions.count)）", action: nil, keyEquivalent: "")
+            let am = NSMenu()
+            am.autoenablesItems = false
+            am.addItem(.header("選ぶと一覧に戻す（⌥ で開く）"))
+            for info in archivedInfos {
+                var t = info.title
+                if t.count > 34 { t = String(t.prefix(34)) + "…" }
+                am.addItem(ClosureMenuItem("↩︎ \(t)") { [weak self] in self?.manager.setArchived(info.id, false) })
+                let open = ClosureMenuItem("開く: \(t)") { [weak self] in self?.manager.resumeSession(info) }
+                open.isAlternate = true
+                open.keyEquivalentModifierMask = [.option]
+                am.addItem(open)
+            }
+            if archivedInfos.count < s.archivedSessions.count {
+                am.addItem(.header("ほか \(s.archivedSessions.count - archivedInfos.count) 件（古いもの）"))
+            }
+            am.addItem(.separator())
+            am.addItem(ClosureMenuItem("すべて一覧に戻す") { [weak self] in self?.manager.updateSettings { $0.archivedSessions = [] } })
+            arch.submenu = am
+            pastMenu.addItem(arch)
         }
         past.submenu = pastMenu
         menu.addItem(past)

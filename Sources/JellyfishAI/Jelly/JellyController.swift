@@ -30,6 +30,23 @@ final class JellyHostView: NSView {
     weak var controller: JellyController?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // ファイルをクラゲに落とすと、そのエージェントへの添付になる
+    private func fileURLs(_ s: NSDraggingInfo) -> [URL] {
+        (s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+    }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard !fileURLs(sender).isEmpty else { return [] }
+        controller?.avatar.poke()
+        return .copy
+    }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = fileURLs(sender)
+        guard !urls.isEmpty, let c = controller else { return false }
+        c.manager?.attachFiles(urls, to: c)
+        return true
+    }
+
     override func mouseDown(with event: NSEvent) { controller?.mouseDown(event) }
     override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(event) }
@@ -61,6 +78,7 @@ final class JellyController: NSObject {
         host = JellyHostView(frame: NSRect(origin: .zero, size: avatar.size))
         super.init()
         host.controller = self
+        host.registerForDraggedTypes([.fileURL])
         host.wantsLayer = true
         host.layer?.backgroundColor = .clear
         avatar.view.frame = host.bounds

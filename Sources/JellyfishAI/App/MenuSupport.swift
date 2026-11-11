@@ -45,21 +45,46 @@ enum MenuImages {
     }
 
     /// メニューバー用の Claude キャラクターのシルエット（テンプレート画像、目は抜き）
-    static func statusIcon() -> NSImage {
-        let rows = [
+    static func statusIcon() -> NSImage { statusFrame(StatusPose()) }
+
+    /// メニューバーのアイコンのコマ（11×8 マスの Clawd。目はくり抜き、テンプレート画像なので明暗に追従）
+    struct StatusPose: Hashable {
+        var lift = 0          // 0 / 1（1 マス浮く）
+        var blink = false
+        var legs = 0          // 0 = 立つ, 1 / 2 = 歩く
+        var dots = 0          // 考え中の「…」（0〜3）
+        var arms = false      // 作業中に腕を上げる
+    }
+
+    private static var frameCache: [StatusPose: NSImage] = [:]
+
+    static func statusFrame(_ p: StatusPose) -> NSImage {
+        if let img = frameCache[p] { return img }
+        var rows = [
             ".#########.",
             ".#########.",
-            "##.#####.##",
+            p.blink ? "###########" : "##.#####.##",
             "###########",
             ".#########.",
             ".#########.",
             ".#.#...#.#.",
             ".#.#...#.#.",
         ]
+        if p.arms { rows[3] = ".#########."; rows[1] = "###########" }
+        switch p.legs {
+        case 1: rows[6] = ".#.#...#.#."; rows[7] = ".#.....#..."
+        case 2: rows[6] = ".#.#...#.#."; rows[7] = "...#.....#."
+        default: break
+        }
+        let dots = p.dots
+        let lift = CGFloat(p.lift)
         let img = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
             NSColor.black.setFill()
             let c: CGFloat = 1.5
-            let ox = (18 - 11 * c) / 2, oy = (18 - 8 * c) / 2
+            let ox = (18 - 11 * c) / 2, oy = (18 - 8 * c) / 2 + 1.5 - lift * c
+            for i in 0..<dots {
+                NSRect(x: ox + CGFloat(3 + i * 2) * c, y: oy - 2 * c, width: c, height: c).fill()
+            }
             for (y, row) in rows.enumerated() {
                 for (x, ch) in row.enumerated() where ch == "#" {
                     NSRect(x: ox + CGFloat(x) * c, y: oy + CGFloat(y) * c, width: c, height: c).fill()
@@ -68,6 +93,7 @@ enum MenuImages {
             return true
         }
         img.isTemplate = true
+        frameCache[p] = img
         return img
     }
 }

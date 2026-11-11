@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -10,7 +11,7 @@ import UniformTypeIdentifiers
 ///   --settle-test                            完了/キャンセルで本当に静止するかを検証
 enum SnapshotTool {
     static func handles(_ args: [String]) -> Bool {
-        args.contains("--sheet") || args.contains("--strip") || args.contains("--icon") || args.contains("--settle-test")
+        args.contains("--sheet") || args.contains("--strip") || args.contains("--icon") || args.contains("--settle-test") || args.contains("--status-frames")
             || args.contains("--pixel-sheet")
     }
 
@@ -32,6 +33,7 @@ enum SnapshotTool {
                          scale: Double(value("--scale") ?? "2") ?? 2)
         }
         if let out = value("--icon") { return icon(out) }
+        if let out = value("--status-frames") { return statusFrames(out) }
         if args.contains("--settle-test") { return settleTest() }
         return 1
     }
@@ -258,5 +260,36 @@ enum SnapshotTool {
         var m = 0
         for i in 0..<n { m = max(m, abs(Int(pa[i]) - Int(pb[i]))) }
         return m
+    }
+
+    /// メニューバーのアイコンのコマを並べた画像（確認用）
+    static func statusFrames(_ out: String) -> Int32 {
+        typealias P = MenuImages.StatusPose
+        let poses: [P] = [P(), P(lift: 1), P(blink: true), P(dots: 1), P(dots: 2), P(dots: 3),
+                          P(lift: 1, legs: 1, arms: true), P(legs: 2)]
+        let scale: CGFloat = 4, cell: CGFloat = 18 * scale
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(cell) * poses.count, pixelsHigh: Int(cell) * 2,
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        for (row, bg) in [NSColor(white: 0.93, alpha: 1), NSColor(white: 0.15, alpha: 1)].enumerated() {
+            bg.setFill()
+            NSRect(x: 0, y: CGFloat(row) * cell, width: cell * CGFloat(poses.count), height: cell).fill()
+            for (i, p) in poses.enumerated() {
+                let img = MenuImages.statusFrame(p).copy() as! NSImage
+                img.isTemplate = false
+                let tinted = NSImage(size: img.size, flipped: false) { r in
+                    img.draw(in: r)
+                    (row == 0 ? NSColor.black : NSColor.white).set()
+                    r.fill(using: .sourceAtop)
+                    return true
+                }
+                tinted.draw(in: NSRect(x: CGFloat(i) * cell, y: CGFloat(row) * cell, width: cell, height: cell))
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
+        return 0
     }
 }

@@ -2,8 +2,30 @@ import AppKit
 
 /// Enter で送信、Shift(またはOption)+Enter で改行、Esc で閉じる。
 /// 日本語入力の変換中（marked text がある間）の Enter / Esc は IME に渡す。
+/// チャットウィンドウの背景。どこにファイルを落としても添付になる
+final class DropEffectView: NSVisualEffectView {
+    var onFiles: (([URL]) -> Void)?
+    static func urls(_ s: NSDraggingInfo) -> [URL] {
+        (s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+    }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { DropEffectView.urls(sender).isEmpty ? [] : .copy }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let u = DropEffectView.urls(sender)
+        guard !u.isEmpty else { return false }
+        onFiles?(u)
+        return true
+    }
+}
+
 final class PromptTextView: NSTextView {
     var onSubmit: (() -> Void)?
+    /// 入力欄にファイルを落としたときはパスを文字で入れず、添付にする
+    var onDropFiles: (([URL]) -> Void)?
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let u = DropEffectView.urls(sender)
+        if !u.isEmpty, let cb = onDropFiles { cb(u); return true }
+        return super.performDragOperation(sender)
+    }
     var onEscape: (() -> Void)?
     var placeholder: String = "" { didSet { needsDisplay = true } }
 
@@ -124,7 +146,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     // MARK: 構築
 
     private func build() {
-        let bg = NSVisualEffectView()
+        let bg = DropEffectView()
+        bg.registerForDraggedTypes([.fileURL])
+        bg.onFiles = { [weak self] u in self?.addAttachments(u) }
         bg.material = .underWindowBackground
         bg.blendingMode = .behindWindow
         bg.state = .active
@@ -218,6 +242,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         input.isAutomaticQuoteSubstitutionEnabled = false
         input.isAutomaticDashSubstitutionEnabled = false
         input.onSubmit = { [weak self] in self?.submit() }
+        input.onDropFiles = { [weak self] u in self?.addAttachments(u) }
         input.onEscape = { [weak self] in self?.closeAndReturn() }
         input.delegate = self
         inputScroll.documentView = input
@@ -529,6 +554,14 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             closeAfterFirstSubmit = false
             closeAndReturn()
         }
+    }
+
+    /// 添付に加える（同じファイルは 1 回だけ）
+    func addAttachments(_ urls: [URL]) {
+        var cur = pendingAttachments
+        for u in urls where !cur.contains(u) { cur.append(u) }
+        setAttachments(cur)
+        window.makeFirstResponder(input)
     }
 
     private func setAttachments(_ urls: [URL]) {

@@ -208,6 +208,20 @@ final class JellyManager {
         openChat(for: c)
     }
 
+    /// 「過去のセッション」の一覧から外す / 戻す（Claude Code のセッションファイルには触れない）
+    func setArchived(_ sessionID: String, _ on: Bool) {
+        updateSettings { s in
+            s.archivedSessions.removeAll { $0 == sessionID }
+            if on { s.archivedSessions.append(sessionID) }
+        }
+    }
+
+    /// ファイルをクラゲに落としたとき：チャットを開いて添付に加える
+    func attachFiles(_ urls: [URL], to c: JellyController) {
+        openChat(for: c)
+        chats[c.record.id]?.addAttachments(urls)
+    }
+
     /// そのセッションを使っているクラゲの番号（メニュー表示用）
     func agentNumber(forSession id: String) -> Int? {
         controllers.first { runtimes[$0.record.id]?.sessionID == id }?.record.number
