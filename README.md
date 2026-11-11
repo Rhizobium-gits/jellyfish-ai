@@ -47,6 +47,16 @@
 | **右クリック** | チャット・キャンセル・隠す・定位置に戻す・削除 |
 | **⌥⌘L** / メニューバー | 全員を隠す・表示（隠しても作業は続く） |
 
+### PC 操作
+
+チャットの **🖱 PC 操作** をオンにしたエージェントだけが、Jellyfish の MCP ツールでこの Mac を操作できます（既定はオフ）。
+
+- `screen_capture`（1 ピクセル = 1 ポイントで撮るので、画像の座標がそのままクリック座標になる）、`list_windows`、`ui_elements`（アクセシビリティでボタンや入力欄の位置を読む）、`open_app`、`mouse_click`、`mouse_drag`、`scroll`、`type_text`、`press_keys`
+- 同時に操作できるのは 1 体だけ。操作中は画面の縁がそのエージェントの色で光り、**Esc で止まる**（メニューバーの「PC 操作」からも止められる）
+- これらのツールは事前許可せず、毎回 Claude Code の Auto Mode の安全判定を通ります。パスワード入力・支払い・送信・公開の投稿などはユーザーが明示的に頼まない限りしないよう指示しています
+- 「システム設定 › プライバシーとセキュリティ」の **アクセシビリティ** と **画面収録** で Jellyfish AI を許可してください
+- Blender は Claude Code に Blender の MCP を入れていれば、エージェントからそのまま使えます（エージェントはユーザーの Claude Code の MCP 設定を読み込みます）
+
 ### チーム（分業）
 
 1. クラゲを別のクラゲの**隣にドラッグして置く**と線でつながる（ドラッグ中は点線でつながる相手が見える）。つながった塊が 1 つのチーム
@@ -98,6 +108,6 @@ open dist/JellyfishAI.app
 ## 開発
 
 - 設計メモ：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- `jellyfish://` URL スキームで外部から操作できます（ショートカット.app・Raycast・自動テスト用）：`new`, `open?agent=2`, `prompt?agent=2&text=…`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `type?agent=2&text=…`, `press?agent=2`, `state?agent=2&s=working`, `remove?agent=2`, `toggle`, `arrange`, `style?v=pixel|realistic`, `debug`
+- `jellyfish://` URL スキームで外部から操作できます（ショートカット.app・Raycast・自動テスト用）：`new`, `open?agent=2`, `prompt?agent=2&text=…`, `rename?agent=2&name=…`, `link?a=2&b=3`, `pc?agent=2&on=1`, `unlink?a=2&b=3`, `type?agent=2&text=…`, `press?agent=2`, `state?agent=2&s=working`, `remove?agent=2`, `toggle`, `arrange`, `style?v=pixel|realistic`, `debug`
 - `.build/debug/JellyfishAI --pixel-sheet out.png` でドット絵のコマ一覧、`--settle-test` で完了時の静止を検証
 - README の GIF は `scripts/demo/record.sh` で撮り直せます（普段のデータには触れず、空のデモ用データで実際に Claude Code を動かして録画。Pillow と ffmpeg が必要）

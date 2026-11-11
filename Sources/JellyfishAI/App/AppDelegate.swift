@@ -135,6 +135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 else if param("scissors") == "1" { manager.team?.cutWithScissors(a.record.id, b.record.id) }
                 else { manager.team?.unlink(a.record.id, b.record.id) }
             }
+        case "pc":
+            // テスト用：jellyfish://pc?agent=2&on=1 で PC 操作を許可 / 0 で取り消す
+            if let c = agent, let rt = manager.runtime(for: c) { rt.pcControl = param("on") == "1" }
         case "folder":
             if let c = agent, let p = param("path"), let rt = manager.runtime(for: c) {
                 rt.changeFolder(URL(fileURLWithPath: (p as NSString).expandingTildeInPath, isDirectory: true))

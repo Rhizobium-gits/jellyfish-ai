@@ -211,6 +211,27 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         policy.submenu = pm
         menu.addItem(policy)
 
+        // PC 操作
+        let pcItem = NSMenuItem(title: "PC 操作", action: nil, keyEquivalent: "")
+        let pcm = NSMenu()
+        pcm.autoenablesItems = false
+        if let d = DesktopControl.shared.driver, let c = manager.controllers.first(where: { $0.record.id == d }) {
+            pcm.addItem(ClosureMenuItem("■ \(c.record.title) の操作を今すぐ止める") { [weak self] in
+                DesktopControl.shared.release(d)
+                if let rt = self?.manager.runtime(for: c) { rt.pcControl = false; rt.cancel() }
+            })
+            pcm.addItem(.separator())
+        }
+        pcm.addItem(.header(DesktopControl.permissionSummary))
+        let allowed = manager.controllers.filter { manager.runtime(for: $0)?.pcControl == true }.map(\.record.title)
+        pcm.addItem(.header("許可しているエージェント: \(allowed.isEmpty ? "なし" : allowed.joined(separator: "、"))"))
+        pcm.addItem(.header("・チャットの「🖱 PC 操作」でエージェントごとにオン（既定オフ）"))
+        pcm.addItem(.header("・同時に操作できるのは 1 体。操作中は画面の縁が光り、Esc で止まる"))
+        pcm.addItem(.header("・クリックや入力は毎回 Claude Code の安全判定を通る"))
+        pcm.addItem(ClosureMenuItem("許可の画面を開く…") { DesktopControl.requestPermissions() })
+        pcItem.submenu = pcm
+        menu.addItem(pcItem)
+
         // エージェント同士の分業
         let teamItem = NSMenuItem(title: "チーム（分業）", action: nil, keyEquivalent: "")
         let tm = NSMenu()

@@ -57,6 +57,13 @@ final class TeamCoordinator {
         self.links = Set(store.loadLinks())
         self.bus = TeamBus(dataDir: store.dir)
         overlay.onCut = { [weak self] l in self?.unlink(l.a, l.b) }
+        // Esc で PC 操作が止められたら：そのエージェントの作業を止め、PC 操作もオフに戻す
+        DesktopControl.shared.onUserStop = { [weak self] id in
+            guard let self, let c = self.controller(id), let rt = self.manager?.runtime(for: c) else { return }
+            rt.pcControl = false
+            rt.cancel()
+            self.manager?.onChange?()
+        }
     }
 
     func start() {
@@ -237,7 +244,7 @@ final class TeamCoordinator {
     }
 
     func runConfig(for c: JellyController, runtime rt: AgentRuntime) -> RunConfig? {
-        guard let m = manager, m.settings.teamEnabled, let exe = Bundle.main.executableURL else { return nil }
+        guard let m = manager, m.settings.teamEnabled || rt.pcControl, let exe = Bundle.main.executableURL else { return nil }
         let id = c.record.id
         let cfg: [String: Any] = ["mcpServers": ["jellyfish": [
             "type": "stdio", "command": exe.path, "args": ["--mcp-bridge", bus.path, id.uuidString],
@@ -245,8 +252,13 @@ final class TeamCoordinator {
         let url = rt.dir.appendingPathComponent("mcp.json")
         guard let data = try? JSONSerialization.data(withJSONObject: cfg, options: [.prettyPrinted]),
               (try? data.write(to: url, options: .atomic)) != nil else { return nil }
-        return RunConfig(mcpConfig: url, systemPrompt: systemPrompt(for: c, runtime: rt),
-                         allowedTools: ["mcp__jellyfish"],
+        var prompt = m.settings.teamEnabled ? systemPrompt(for: c, runtime: rt) : ""
+        if rt.pcControl { prompt += "\n\n" + DesktopControl.systemPrompt }
+        // 事前に許可するのはチームのツールだけ。PC 操作のツールは毎回 Claude Code の安全判定を通す
+        let allowed = m.settings.teamEnabled
+            ? TeamCoordinator.toolDefinitions.compactMap { $0["name"] as? String }.map { "mcp__jellyfish__\($0)" } : []
+        return RunConfig(mcpConfig: url, systemPrompt: prompt,
+                         allowedTools: allowed,
                          // wait_for_tasks は仲間の作業が終わるまで待つので、MCP の既定のタイムアウトより長くする
                          env: ["MCP_TOOL_TIMEOUT": "2400000"])
     }
@@ -261,6 +273,7 @@ final class TeamCoordinator {
             return "- \(m.record.title)（\(m.record.color.name)、\(st)、\(direct)）"
         }.joined(separator: "\n")
         if roster.isEmpty { roster = "- まだ仲間はいません（create_teammate で作れます）" }
+        let pcNote = rt.pcControl ? "" : "\nPC 操作（画面を見てクリック・入力する）は、ユーザーがこのエージェントのチャットで「🖱 PC 操作」をオンにすると使えます。頼まれたらそう伝えてください。"
         let depth = c.record.depth ?? 0
         let room = max(0, min(TeamCoordinator.maxTeamSize - team(of: id).count,
                               TeamCoordinator.maxAgents - (manager?.controllers.count ?? 0)))
@@ -276,13 +289,14 @@ final class TeamCoordinator {
         作業フォルダ: \(rt.cwd.path.replacingOccurrences(of: home, with: "~"))
         今のチーム:
         \(roster)
-        \(canCreate ? "新しく作れる仲間: あと \(room) 体" : "このエージェントはこれ以上仲間を作れません（上限）。今いる仲間には頼めます。")
+        \(canCreate ? "新しく作れる仲間: あと \(room) 体" : "このエージェントはこれ以上仲間を作れません（上限）。今いる仲間には頼めます。")\(pcNote)
         """
     }
 
     // MARK: - ターンの終了
 
     func turnEnded(agent: UUID, turn: AgentTurn) {
+        DesktopControl.shared.release(agent)
         if let tid = running[agent] {
             running[agent] = nil
             let st: TeamTask.Status = turn.state == .completed ? .completed : (turn.state == .cancelled ? .cancelled : .error)
@@ -368,7 +382,11 @@ final class TeamCoordinator {
         case "ping":
             reply([:])
         case "tools/list":
-            reply(["tools": TeamCoordinator.toolDefinitions])
+            var tools = manager?.settings.teamEnabled == true ? TeamCoordinator.toolDefinitions : []
+            if let id = conn.agentID, let c = controller(id), manager?.runtime(for: c)?.pcControl == true {
+                tools += DesktopControl.toolDefinitions
+            }
+            reply(["tools": tools])
         case "tools/call":
             let p = msg["params"] as? [String: Any] ?? [:]
             let tool = p["name"] as? String ?? ""
@@ -416,6 +434,15 @@ final class TeamCoordinator {
         func ok(_ obj: Any) { reply(TeamCoordinator.json(obj), false) }
         func fail(_ s: String) { reply(s, true) }
         guard let me = controller(caller), let m = manager else { fail("呼び出し元が見つかりません"); return }
+        if DesktopControl.toolDefinitions.contains(where: { $0["name"] as? String == tool }) {
+            guard let rt = m.runtime(for: me), rt.pcControl else {
+                fail("このエージェントには PC 操作が許可されていません（チャットの「🖱 PC 操作」でオンにできます）")
+                return
+            }
+            DesktopControl.shared.call(tool, args, agent: caller, name: me.record.title, color: me.record.color.nsColor,
+                                       dir: rt.dir, reply: reply)
+            return
+        }
         switch tool {
         case "list_team":
             let mates = team(of: caller).dropFirst().compactMap { controller($0) }

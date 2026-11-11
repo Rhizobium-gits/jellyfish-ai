@@ -80,6 +80,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private let folderButton = NSButton(title: "", target: nil, action: nil)
     private let terminalButton = NSButton(title: "Claude Code で開く", target: nil, action: nil)
     private let renameButton = NSButton(title: "名前", target: nil, action: nil)
+    private let pcButton = NSButton(title: "🖱 PC 操作", target: nil, action: nil)
     private let transcript = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
     private let transcriptScroll = NSScrollView()
     private let input = PromptTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 44))
@@ -162,7 +163,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         stateLabel.lineBreakMode = .byTruncatingTail
         stateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         dot.imageScaling = .scaleNone
-        for b in [cancelButton, retryButton, folderButton, terminalButton, renameButton] {
+        for b in [cancelButton, retryButton, folderButton, terminalButton, renameButton, pcButton] {
             b.bezelStyle = .accessoryBarAction
             b.controlSize = .small
             b.font = .systemFont(ofSize: 11.5)
@@ -170,6 +171,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         }
         cancelButton.action = #selector(cancelTask)
         renameButton.action = #selector(renameAgent)
+        pcButton.action = #selector(togglePC)
+        pcButton.setButtonType(.pushOnPushOff)
+        pcButton.toolTip = "このエージェントに PC 操作（画面を見る・クリック・入力）を許す。操作中は画面の縁が光り、Esc で止まる。次の指示から反映"
         renameButton.toolTip = "このエージェントの名前を変える（仲間どうしはこの名前で呼び合います）"
         retryButton.action = #selector(retryTask)
         folderButton.action = #selector(chooseFolder)
@@ -209,7 +213,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         effortPopup.action = #selector(effortChanged)
         modelPopup.toolTip = "このクラゲが使うモデル（次の指示から反映）"
         effortPopup.toolTip = "考える強さ（--effort。次の指示から反映）"
-        let controlsRow = NSStackView(views: [modelPopup, effortPopup, screenPopup, attachButton, folderButton, NSView(), terminalButton])
+        let controlsRow = NSStackView(views: [modelPopup, effortPopup, screenPopup, attachButton, pcButton, folderButton, NSView(), terminalButton])
         controlsRow.orientation = .horizontal
         controlsRow.spacing = 6
         // 幅が足りないときはウィンドウを広げず、フォルダ名・ポップアップの文字を省略して縮める
@@ -369,6 +373,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 0)
         effortPopup.selectItem(at: AgentChatController.efforts.firstIndex { $0.value == runtime.effort } ?? 0)
         effortPopup.isEnabled = manager?.supportsEffort ?? true
+        pcButton.state = runtime.pcControl ? .on : .off
+        pcButton.title = runtime.pcControl ? "🖱 PC 操作: オン" : "🖱 PC 操作"
         stateLabel.stringValue = st
         cancelButton.isHidden = !running
         let last = runtime.lastTurn
@@ -550,7 +556,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private func send(_ prompt: String) {
         runtime.submit(prompt)
         refresh()
-        if closeAfterFirstSubmit {
+        // PC 操作のときは、エージェントが実際の画面を見て操作できるようにチャットを閉じて元のアプリに戻す
+        if closeAfterFirstSubmit || runtime.pcControl {
             closeAfterFirstSubmit = false
             closeAndReturn()
         }
@@ -609,6 +616,20 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     @objc private func cancelTask() { runtime.cancel() }
     @objc private func renameAgent() { if let j = jelly { manager?.promptRename(j) } }
+
+    @objc private func togglePC() {
+        let on = !runtime.pcControl
+        runtime.pcControl = on
+        if on && !(DesktopControl.hasAccessibility && DesktopControl.hasScreenRecording) {
+            let a = NSAlert()
+            a.messageText = "PC 操作には macOS の許可が必要です"
+            a.informativeText = "「システム設定 › プライバシーとセキュリティ」の「アクセシビリティ」と「画面収録」で Jellyfish AI を許可してください（許可したあとアプリの再起動が必要なことがあります）。\n\n今の状態: \(DesktopControl.permissionSummary)"
+            a.addButton(withTitle: "許可の画面を開く")
+            a.addButton(withTitle: "あとで")
+            if a.runModal() == .alertFirstButtonReturn { DesktopControl.requestPermissions() }
+        }
+        refresh()
+    }
     @objc private func retryTask() { runtime.retry() }
 
     @objc private func chooseFolder() {

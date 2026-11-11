@@ -24,6 +24,8 @@ final class AgentRuntime {
     /// クラゲごとのモデル・強さ（nil = 既定）
     var model: String? { didSet { saveMeta() } }
     var effort: String? { didSet { saveMeta() } }
+    /// このエージェントに PC 操作（画面・マウス・キー）を許すか。既定はオフ
+    var pcControl: Bool = false { didSet { saveMeta() } }
 
     /// 現在の動作の 1 行説明（「Bash: npm test」など）
     private(set) var activity: String?
@@ -61,6 +63,7 @@ final class AgentRuntime {
         cwd = URL(fileURLWithPath: meta?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
         model = meta?.model
         effort = meta?.effort
+        pcControl = meta?.pcControl ?? false
         turns = AgentRuntime.loadTurns(dir)
         // 前回アプリ終了時に実行中だったターンは中断扱い
         if let last = turns.last, !last.state.isTerminal && last.state != .error {
@@ -252,6 +255,7 @@ final class AgentRuntime {
     private struct Meta: Codable {
         var sessionID: String; var sessionStarted: Bool; var cwd: String
         var model: String?; var effort: String?
+        var pcControl: Bool?
     }
 
     private static func loadMeta(_ dir: URL) -> Meta? {
@@ -260,7 +264,8 @@ final class AgentRuntime {
     }
 
     private func saveMeta() {
-        let m = Meta(sessionID: sessionID, sessionStarted: sessionStarted, cwd: cwd.path, model: model, effort: effort)
+        let m = Meta(sessionID: sessionID, sessionStarted: sessionStarted, cwd: cwd.path, model: model, effort: effort,
+                     pcControl: pcControl)
         if let d = try? JSONEncoder().encode(m) { try? d.write(to: dir.appendingPathComponent("meta.json"), options: .atomic) }
     }
 
