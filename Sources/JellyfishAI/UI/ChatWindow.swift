@@ -374,6 +374,12 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         if capturing { st = "\(r.title) · 📷 画面を取り込んでいます…" }
         if let m = runtime.activeModel { st += "  ·  \(m)" }
         if let p = manager?.team?.pendingDescription(for: r.id) { st += "  ·  \(p)" }
+        // 線でつながった仲間（この人たちに分担を頼める）
+        let mates = (manager?.settings.teamEnabled ?? false) ? (manager?.team?.teammateNames(for: r.id) ?? []) : []
+        if !mates.isEmpty {
+            let shown = mates.prefix(3).joined(separator: "・") + (mates.count > 3 ? " ほか \(mates.count - 3) 体" : "")
+            st += "  ·  👥 \(shown) とチーム"
+        }
         if let l = manager?.listeningStatus(jelly) { st = "\(r.title) · " + l }
         screenPopup.selectItem(at: ScreenMode.allCases.firstIndex(of: manager?.settings.screenMode ?? .auto) ?? 0)
         modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 0)
@@ -401,8 +407,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         folderButton.title = "📁 " + runtime.cwd.path.replacingOccurrences(of: home, with: "~")
 
         input.isEditable = !running && !capturing
+        let teamHint = mates.isEmpty ? "" : "（つながっている \(mates.prefix(2).joined(separator: "・"))\(mates.count > 2 ? " たち" : "") に分担させることもできます）"
         input.placeholder = running ? "実行中です。終わったら続けて指示できます"
-            : (runtime.turns.isEmpty && !runtime.sessionStarted ? "\(r.title) に頼みたいことを入力…" : "この結果に続けて指示する…")
+            : (runtime.turns.isEmpty && !runtime.sessionStarted ? "\(r.title) に頼みたいことを入力…" : "この結果に続けて指示する…") + teamHint
         footer.stringValue = "⏎ 送信   ⇧⏎ 改行   esc 閉じる   ·   \(manager?.policyDescription ?? "")   ·   記録: Claude Code のセッション"
         scheduleReload()
     }

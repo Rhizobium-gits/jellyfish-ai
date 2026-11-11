@@ -1,0 +1,43 @@
+{
+ "region": [
+  1060,
+  40,
+  860,
+  740
+ ],
+ "scale": 2,
+ "fps": 20,
+ "dataDir": ".build/demo-data/link",
+ "steps": [
+  {
+   "delay": 1.2,
+   "mark": "drag1",
+   "url": "jellyfish://move?agent=2&dx=-205&dy=-69&t=1.4"
+  },
+  {
+   "delay": 3.4,
+   "mark": "drag2",
+   "url": "jellyfish://move?agent=3&dx=-95&dy=211&t=1.4"
+  },
+  {
+   "delay": 3.4,
+   "mark": "group",
+   "url": "jellyfish://move?agent=1&dx=-200&dy=-80&t=1.4&mods=shift"
+  },
+  {
+   "delay": 3.2,
+   "mark": "cut",
+   "url": "jellyfish://move?agent=3&dx=260&dy=-40&t=1.4&mods=option"
+  },
+  {
+   "delay": 3.2,
+   "mark": "scissors",
+   "url": "jellyfish://unlink?a=1&b=2&scissors=1"
+  },
+  {
+   "delay": 2.4,
+   "mark": "end",
+   "stop": true
+  }
+ ]
+}

@@ -92,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   jellyfish://press?agent=2             長押しと同じ動作（デモ録画用）
     ///   jellyfish://rename?agent=2&name=調査係  名前を変える（空で Agent N に戻す）
     ///   jellyfish://link?a=2&b=3 | unlink     2 体をつなぐ / 切る
+    ///   jellyfish://move?agent=2&dx=-120&dy=40[&mods=shift|option&t=0.8]  ドラッグして置く（デモ録画用）
     ///   jellyfish://toggle | show | hide      全体の表示切替
     ///   jellyfish://arrange                   右端に並べ直す
     ///   jellyfish://state?agent=2&s=working   状態を設定（Phase 1 ではプレビュー用）
@@ -144,8 +145,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case "move":
             // デモ録画用：jellyfish://move?agent=2&dx=-120&dy=40 でドラッグしたように動かして置く
+            // mods=shift でチームごと、mods=option で切り離し
             if let c = agent {
-                manager.demoDrag(c, by: CGVector(dx: param("dx").flatMap(Double.init) ?? 0, dy: param("dy").flatMap(Double.init) ?? 0))
+                var mods: NSEvent.ModifierFlags = []
+                let m = param("mods") ?? ""
+                if m.contains("shift") { mods.insert(.shift) }
+                if m.contains("option") { mods.insert(.option) }
+                manager.demoDrag(c, by: CGVector(dx: param("dx").flatMap(Double.init) ?? 0, dy: param("dy").flatMap(Double.init) ?? 0),
+                                 duration: param("t").flatMap(Double.init) ?? 0.8, mods: mods)
             }
         case "toggle": manager.toggleAllHidden()
         case "show": manager.setAllHidden(false)

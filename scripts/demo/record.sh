@@ -1,6 +1,6 @@
 #!/bin/zsh
 # README の GIF を撮り直す。
-#   scripts/demo/record.sh [basic parallel states]
+#   scripts/demo/record.sh [basic parallel states team link]
 #
 # - 普段の Jellyfish AI を一度終了し、JELLYFISH_DATA_DIR で空のデモ用データから起動して録画する
 #   （普段のクラゲ・会話・設定には触れない。録画後に普段のアプリを起動し直す）
@@ -10,7 +10,7 @@
 # - 撮影するプロセス（ターミナル / VS Code）に「画面収録」の許可が必要
 set -e
 cd "$(dirname "$0")/../.."
-takes=(${@:-basic parallel states team})
+takes=(${@:-basic parallel states team link})
 [[ -d dist/JellyfishAI.app ]] || scripts/build.sh
 mkdir -p .build ~/jellyfish-demo
 swiftc -O scripts/demo/recorder.swift -o .build/recorder
@@ -30,4 +30,4 @@ for name in $takes; do
   /bin/sleep 0.5
 done
 open dist/JellyfishAI.app
-python3 scripts/demo/make_gif.py .build/demo-frames docs/media
+"${PYTHON:-python3}" scripts/demo/make_gif.py .build/demo-frames docs/media $takes

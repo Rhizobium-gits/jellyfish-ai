@@ -10,6 +10,7 @@ final class JellyManager {
     var onChange: (() -> Void)?
 
     private var pointerTimer: Timer?
+    private var lastDragMods: NSEvent.ModifierFlags = []
     /// クラゲごとのエージェント（セッション・プロセス・履歴）
     private var runtimes: [UUID: AgentRuntime] = [:]
     /// クラゲを消しても実行中なら最後まで動かすためのもの
@@ -441,29 +442,40 @@ final class JellyManager {
         return freeSlotOrigin(excluding: nil)
     }
 
-    func jellyDragged(_ c: JellyController) { team?.jellyDragged(c) }
+    func jellyDragBegan(_ c: JellyController, origin: NSPoint) { team?.jellyDragBegan(c, origin: origin) }
+    func jellyDragged(_ c: JellyController, mods: NSEvent.ModifierFlags) { team?.jellyDragged(c, mods: mods) }
+    func jellyDropped(_ c: JellyController, mods: NSEvent.ModifierFlags) { team?.jellyDropped(c, mods: mods) }
 
-    /// デモ録画用：ドラッグと同じ経路で動かして、最後に置く（隣ならつながる）
-    func demoDrag(_ c: JellyController, by d: CGVector, duration: Double = 0.8) {
+    /// つながりが変わった：開いているチャットの「チーム」表示を更新
+    func teamChanged() {
+        for chat in chats.values where chat.isVisible { chat.refresh() }
+    }
+
+    /// デモ録画用：ドラッグと同じ経路で動かして、最後に置く（隣ならつながる）。mods で ⇧ / ⌥ を押した扱いにできる
+    func demoDrag(_ c: JellyController, by d: CGVector, duration: Double = 0.8, mods: NSEvent.ModifierFlags = []) {
         let start = c.panel.frame.origin
         let steps = 24
         c.avatar.dragBegan()
+        team?.jellyDragBegan(c, origin: start)
         for i in 1...steps {
             DispatchQueue.main.asyncAfter(deadline: .now() + duration * Double(i) / Double(steps)) { [weak self, weak c] in
                 guard let self, let c else { return }
                 let t = Double(i) / Double(steps)
                 let e = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
                 c.panel.setFrameOrigin(NSPoint(x: start.x + d.dx * e, y: start.y + d.dy * e))
-                self.jellyDragged(c)
+                self.jellyDragged(c, mods: mods)
                 if i == steps {
-                    c.avatar.dragEnded()
-                    c.update { $0.origin = c.panel.frame.origin }
-                    self.jellyDropped(c)
+                    // 置く前に一瞬止めて「離すとつながる」を見せる
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak c] in
+                        guard let self, let c else { return }
+                        c.avatar.dragEnded()
+                        c.update { $0.origin = c.panel.frame.origin }
+                        self.jellyDropped(c, mods: mods)
+                    }
                 }
             }
         }
     }
-    func jellyDropped(_ c: JellyController) { team?.jellyDropped(c) }
 
     func controller(number: Int) -> JellyController? { controllers.first { $0.record.number == number } }
 
@@ -604,6 +616,13 @@ final class JellyManager {
     }
 
     private func pollPointer() {
+        // ドラッグ中に ⇧ / ⌥ を押した・離したら、マウスが止まっていても表示を切り替える
+        if let d = controllers.first(where: { $0.isBeingDragged }) {
+            let mods = NSEvent.modifierFlags.intersection([.shift, .option])
+            if mods != lastDragMods { lastDragMods = mods; team?.jellyDragged(d, mods: mods) }
+        } else {
+            lastDragMods = []
+        }
         let p = NSEvent.mouseLocation
         if p == lastPointer {
             // ポインタが止まっていても、クラゲ側が漂って位置が変わるので時々は再判定する
@@ -666,6 +685,26 @@ final class JellyManager {
         }
         items.append(ClosureMenuItem("チャットを開く…") { [weak self, weak c] in if let c { self?.openChat(for: c) } })
         items.append(ClosureMenuItem("名前を変える…") { [weak self, weak c] in if let c { self?.promptRename(c) } })
+        if let team, settings.teamEnabled {
+            // ドラッグしなくても、離れたクラゲとつなげる
+            let others = controllers.filter { $0 !== c && !$0.record.hidden && !team.isLinked(r.id, $0.record.id) }
+            if !others.isEmpty {
+                let li = NSMenuItem(title: "つなぐ", action: nil, keyEquivalent: "")
+                let lm = NSMenu()
+                lm.autoenablesItems = false
+                for o in others {
+                    let oid = o.record.id
+                    let it = ClosureMenuItem("🔗 \(o.record.title) とつなぐ", image: MenuImages.dot(o.record.color, state: o.record.state)) {
+                        [weak team] in team?.link(r.id, oid)
+                    }
+                    it.isEnabled = team.canLink(r.id, oid)
+                    if !it.isEnabled { it.toolTip = "チームは \(TeamCoordinator.maxTeamSize) 体まで" }
+                    lm.addItem(it)
+                }
+                li.submenu = lm
+                items.append(li)
+            }
+        }
         if let team, !team.neighbors(r.id).isEmpty {
             let li = NSMenuItem(title: "つながり", action: nil, keyEquivalent: "")
             let lm = NSMenu()

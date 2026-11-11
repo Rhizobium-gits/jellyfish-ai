@@ -1,0 +1,41 @@
+[
+ {
+  "colorIndex": 0,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "7EA70000-0000-4000-8000-0000000000A1",
+  "number": 1,
+  "origin": [
+   1500,
+   700
+  ],
+  "state": "idle",
+  "name": "リーダー"
+ },
+ {
+  "colorIndex": 1,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "7EA70000-0000-4000-8000-0000000000A2",
+  "number": 2,
+  "origin": [
+   1800,
+   820
+  ],
+  "state": "idle",
+  "name": "調査係"
+ },
+ {
+  "colorIndex": 2,
+  "createdAt": "2026-11-12T00:00:00Z",
+  "hidden": false,
+  "id": "7EA70000-0000-4000-8000-0000000000A3",
+  "number": 3,
+  "origin": [
+   1750,
+   450
+  ],
+  "state": "idle",
+  "name": "執筆係"
+ }
+]

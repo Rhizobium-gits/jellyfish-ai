@@ -68,6 +68,8 @@ final class JellyController: NSObject {
     private var longPressFired = false
     static let longPressDuration = 0.65
     private(set) var isDragging = false
+    /// 押しただけでなく実際に動かしている
+    var isBeingDragged: Bool { isDragging && dragged }
     private(set) var isVisible = false
 
     init(record: JellyRecord, avatar: Avatar, manager: JellyManager) {
@@ -205,11 +207,12 @@ final class JellyController: NSObject {
             pressTimer?.invalidate()
             avatar.pressCancelled()
             avatar.dragBegan()
+            manager?.jellyDragBegan(self, origin: dragStartOrigin)
         }
         dragged = true
         panel.setFrameOrigin(NSPoint(x: dragStartOrigin.x + dx, y: dragStartOrigin.y + dy))
         (avatar as? RealisticAvatar)?.windowMoved()
-        manager?.jellyDragged(self)
+        manager?.jellyDragged(self, mods: NSEvent.modifierFlags)
     }
 
     func mouseUp(_ e: NSEvent) {
@@ -222,7 +225,7 @@ final class JellyController: NSObject {
         if dragged {
             avatar.dragEnded()
             update { $0.origin = panel.frame.origin }
-            manager?.jellyDropped(self)
+            manager?.jellyDropped(self, mods: NSEvent.modifierFlags)
         } else {
             avatar.poke()
             manager?.jellyClicked(self)

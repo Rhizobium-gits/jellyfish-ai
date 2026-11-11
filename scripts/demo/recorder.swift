@@ -190,7 +190,12 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 }
             }
             if let u = step.url, let url = URL(string: u) {
-                await MainActor.run { _ = NSWorkspace.shared.open(url) }
+                // 作業中のアプリからフォーカスを奪わないよう、前面化せずに URL を渡す
+                await MainActor.run {
+                    let cfg = NSWorkspace.OpenConfiguration()
+                    cfg.activates = false
+                    NSWorkspace.shared.open(url, configuration: cfg) { _, _ in }
+                }
             }
             if let m = step.mark { await MainActor.run { log(m) } }
             if step.stop == true { break }

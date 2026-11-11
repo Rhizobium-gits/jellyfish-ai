@@ -42,7 +42,6 @@ final class TeamCoordinator {
     private var running: [UUID: String] = [:]
     private var waiters: [Waiter] = []
     private var hovered: UUID?
-    private var previewPair: (UUID, UUID)?
 
     private struct Waiter {
         let id = UUID()
@@ -117,8 +116,7 @@ final class TeamCoordinator {
     func link(_ a: UUID, _ b: UUID, animated: Bool = true) -> Bool {
         guard a != b, !isLinked(a, b) else { return false }
         // チームの大きさの上限
-        let merged = Set(team(of: a)).union(team(of: b))
-        guard merged.count <= TeamCoordinator.maxTeamSize else {
+        guard canLink(a, b) else {
             AppLog.write("link refused: team would exceed \(TeamCoordinator.maxTeamSize)")
             return false
         }
@@ -163,36 +161,186 @@ final class TeamCoordinator {
         refresh()
     }
 
-    private func save() { store.save(links: Array(links)) }
+    private func save() {
+        store.save(links: Array(links))
+        manager?.teamChanged()
+    }
 
-    // MARK: - ドラッグで隣に置く
+    // MARK: - ドラッグ（近づけてつなぐ・⇧ でチームごと移動・⌥ で切り離す）
 
-    /// ドラッグ中：つながりそうな相手を点線で見せる
-    func jellyDragged(_ c: JellyController) {
-        let cand = adjacentCandidate(for: c)
-        previewPair = cand.map { (c.record.id, $0.record.id) }
+    /// 中心どうしが体の幅の何倍まで近づいたらつながるか
+    static let linkReach: CGFloat = 1.5
+    /// つないだあと、線が見えるように落ち着かせる距離（体の幅の倍数）
+    static let settleDistance: CGFloat = 1.6
+
+    /// ドラッグ 1 回ぶんの状態
+    private struct DragSession {
+        let id: UUID
+        let start: NSPoint
+        /// 同じチームの仲間の、ドラッグ開始時の位置（⇧ で一緒に動かす）
+        let mates: [UUID: NSPoint]
+        var group = false
+        var cutting = false
+        var candidate: UUID?
+    }
+    private var drag: DragSession?
+    /// 置いたあと滑らせている間も「つながる先」の表示を残す
+    private var pendingLink: (UUID, UUID)?
+    private var glideTimer: Timer?
+    private var glideFinish: (() -> Void)?
+
+    func canLink(_ a: UUID, _ b: UUID) -> Bool {
+        a != b && !isLinked(a, b) && Set(team(of: a)).union(team(of: b)).count <= TeamCoordinator.maxTeamSize
+    }
+
+    func teammateNames(for id: UUID) -> [String] { team(of: id).dropFirst().map(name) }
+
+    func jellyDragBegan(_ c: JellyController, origin: NSPoint) {
+        finishGlide()
+        let id = c.record.id
+        var mates: [UUID: NSPoint] = [:]
+        for m in team(of: id) where m != id {
+            if let mc = controller(m), mc.isVisible { mates[m] = mc.panel.frame.origin }
+        }
+        drag = DragSession(id: id, start: origin, mates: mates)
+    }
+
+    /// ドラッグ中（動くたび・修飾キーが変わるたび）
+    func jellyDragged(_ c: JellyController, mods: NSEvent.ModifierFlags) {
+        let id = c.record.id
+        if drag?.id != id { jellyDragBegan(c, origin: c.panel.frame.origin) }
+        guard var s = drag else { return }
+        let o = c.panel.frame.origin
+        let dx = o.x - s.start.x, dy = o.y - s.start.y
+        // ⇧：線でつながった仲間も一緒に動く（離すと元の位置へ戻る）
+        let group = mods.contains(.shift) && !s.mates.isEmpty
+        if group || s.group {
+            for (m, p) in s.mates {
+                guard let mc = controller(m) else { continue }
+                mc.panel.setFrameOrigin(group ? NSPoint(x: p.x + dx, y: p.y + dy) : p)
+                (mc.avatar as? RealisticAvatar)?.windowMoved()
+            }
+        }
+        s.group = group
+        // ⌥：離すとこのクラゲのつながりを全部切る
+        s.cutting = mods.contains(.option) && !neighbors(id).isEmpty
+        let cand = s.cutting ? nil : adjacentCandidate(for: c, excluding: group ? Set(s.mates.keys) : [])
+        if let cand, cand.record.id != s.candidate { cand.avatar.poke() }
+        s.candidate = cand?.record.id
+        drag = s
         refresh()
     }
 
-    /// 置いたとき：隣（体 1 つ分くらいの距離）に別のクラゲがいればつなぐ
-    func jellyDropped(_ c: JellyController) {
-        previewPair = nil
-        if let other = adjacentCandidate(for: c), manager?.settings.teamEnabled == true {
-            link(c.record.id, other.record.id)
+    /// 置いたとき
+    func jellyDropped(_ c: JellyController, mods: NSEvent.ModifierFlags) {
+        jellyDragged(c, mods: mods)
+        guard let s = drag, s.id == c.record.id else { refresh(); return }
+        drag = nil
+        let id = c.record.id
+        var movers = [c]
+        if s.group {
+            for m in s.mates.keys {
+                guard let mc = controller(m) else { continue }
+                mc.moveTo(mc.panel.frame.origin, persist: true)
+                movers.append(mc)
+            }
+        }
+        if s.cutting {
+            unlinkAll(id)
+            refresh()
+            return
+        }
+        guard let tid = s.candidate, let t = controller(tid), canLink(id, tid) else {
+            if let tid = s.candidate { AppLog.write("link refused: \(name(id)) — \(name(tid))") }
+            refresh()
+            return
+        }
+        // 近すぎると線が体に隠れて ✂︎ も出せないので、線が見える距離まで滑らせてからつなぐ
+        pendingLink = (id, tid)
+        if let d = settleOffset(for: c, from: t, movers: movers) {
+            glide(movers, by: d) { [weak self] in self?.completeLink(id, tid) }
+        } else {
+            completeLink(id, tid)
+        }
+    }
+
+    private func completeLink(_ a: UUID, _ b: UUID) {
+        pendingLink = nil
+        // 滑らせている間に片方が消えていたら何もしない
+        if controller(a) != nil, controller(b) != nil, link(a, b) {
+            controller(a)?.avatar.poke()
+            controller(b)?.avatar.poke()
         } else {
             refresh()
         }
     }
 
-    private func adjacentCandidate(for c: JellyController) -> JellyController? {
+    private func adjacentCandidate(for c: JellyController, excluding: Set<UUID>) -> JellyController? {
         guard let m = manager, m.settings.teamEnabled else { return nil }
         let p = c.anchorPoint
-        let limit = c.panel.frame.width * 1.15
+        let reach = c.panel.frame.width * TeamCoordinator.linkReach
         return m.controllers
-            .filter { $0 !== c && $0.isVisible && !isLinked($0.record.id, c.record.id) }
+            .filter { $0 !== c && $0.isVisible && !isLinked($0.record.id, c.record.id) && !excluding.contains($0.record.id) }
             .map { ($0, hypot($0.anchorPoint.x - p.x, $0.anchorPoint.y - p.y)) }
-            .filter { $0.1 <= limit }
+            .filter { $0.1 <= reach }
             .min { $0.1 < $1.1 }?.0
+    }
+
+    /// 相手から settleDistance 離れた、画面内で他のクラゲと重ならない位置までのずれ（すでに十分離れていれば nil）
+    private func settleOffset(for c: JellyController, from t: JellyController, movers: [JellyController]) -> CGVector? {
+        let w = c.panel.frame.width
+        let want = w * TeamCoordinator.settleDistance
+        let pa = c.anchorPoint, pt = t.anchorPoint
+        let dist = hypot(pa.x - pt.x, pa.y - pt.y)
+        guard dist < want - 2 else { return nil }
+        let base = dist < 1 ? CGFloat.pi : atan2(pa.y - pt.y, pa.x - pt.x)
+        let moving = Set(movers.map { ObjectIdentifier($0) })
+        let others = (manager?.controllers ?? [])
+            .filter { $0.isVisible && $0 !== t && !moving.contains(ObjectIdentifier($0)) }
+            .map(\.anchorPoint)
+        let vf = (t.panel.screen ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        // 来た向きを優先し、ふさがっていれば 30° ずつ回して探す
+        for k in [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6] {
+            let ang = base + CGFloat(k) * .pi / 6
+            let d = CGVector(dx: pt.x + cos(ang) * want - pa.x, dy: pt.y + sin(ang) * want - pa.y)
+            let f = c.panel.frame.offsetBy(dx: d.dx, dy: d.dy)
+            guard vf.contains(f.insetBy(dx: f.width * 0.2, dy: f.height * 0.2)) else { continue }
+            let np = CGPoint(x: pa.x + d.dx, y: pa.y + d.dy)
+            if others.contains(where: { hypot($0.x - np.x, $0.y - np.y) < w * 0.9 }) { continue }
+            return d
+        }
+        return nil
+    }
+
+    /// 少しだけ滑らせて置き直す（0.22 秒・ease-out）
+    private func glide(_ movers: [JellyController], by d: CGVector, done: @escaping () -> Void) {
+        finishGlide()
+        let starts = movers.map { ($0, $0.panel.frame.origin) }
+        let t0 = CACurrentMediaTime(), dur = 0.22
+        glideFinish = {
+            for (m, o) in starts { m.moveTo(NSPoint(x: o.x + d.dx, y: o.y + d.dy), persist: true) }
+            done()
+        }
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            let k = min(1, (CACurrentMediaTime() - t0) / dur)
+            let e = CGFloat(1 - pow(1 - k, 3))
+            for (m, o) in starts {
+                m.panel.setFrameOrigin(NSPoint(x: o.x + d.dx * e, y: o.y + d.dy * e))
+                (m.avatar as? RealisticAvatar)?.windowMoved()
+            }
+            self?.refresh()
+            if k >= 1 { self?.finishGlide() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        glideTimer = timer
+    }
+
+    private func finishGlide() {
+        glideTimer?.invalidate()
+        glideTimer = nil
+        let f = glideFinish
+        glideFinish = nil
+        f?()
     }
 
     // MARK: - 描画
@@ -221,9 +369,40 @@ final class TeamCoordinator {
                 labels.append(.init(id: id, text: c.record.title, at: c.labelPoint, color: c.record.color.nsColor))
             }
         }
-        var preview: (CGPoint, CGPoint)?
-        if let (a, b) = previewPair, let p1 = anchor(a), let p2 = anchor(b) { preview = (p1, p2) }
-        overlay.update(segments: segs, labels: labels, preview: preview)
+        var preview: LinkOverlay.Preview?
+        var pills: [LinkOverlay.Pill] = []
+        var warn: Set<JellyLink> = []
+        let pair = drag.flatMap { s in s.candidate.map { (s.id, $0) } } ?? pendingLink
+        if let (a, b) = pair, let ca = controller(a), let cb = controller(b), ca.isVisible, cb.isVisible {
+            let ok = pendingLink != nil || canLink(a, b)
+            let color = ca.record.color.nsColor
+            preview = .init(from: ca.anchorPoint, to: cb.anchorPoint, color: color, ok: ok, radius: cb.panel.frame.width * 0.62)
+            if drag != nil {
+                // 吹き出しは 2 体の頭より上（線の重ね窓はクラゲより下に描くので、体に隠れない位置に置く）
+                let top = max(ca.panel.frame.maxY, cb.panel.frame.maxY) + 16
+                let text = ok ? "🔗 離すと \(cb.record.title) とつながる" : "チームは \(TeamCoordinator.maxTeamSize) 体まで"
+                pills.append(.init(id: "candidate", text: text, at: CGPoint(x: (ca.anchorPoint.x + cb.anchorPoint.x) / 2, y: top),
+                                   color: ok ? color : LinkOverlay.warnColor))
+            }
+        }
+        if let s = drag, let c = controller(s.id), c.isVisible {
+            // 名前ラベル（足元）のさらに下
+            let at = CGPoint(x: c.anchorPoint.x, y: c.labelPoint.y - 19)
+            let color = c.record.color.nsColor
+            if s.cutting {
+                warn = Set(links.filter { $0.contains(s.id) })
+                pills.append(.init(id: "hint", text: "✂ 離すと つながりを切る", at: at, color: LinkOverlay.warnColor))
+            } else if s.group {
+                pills.append(.init(id: "hint", text: "👥 チームごと移動中", at: at, color: color))
+            } else if !neighbors(s.id).isEmpty {
+                pills.append(.init(id: "hint", text: "⇧ チームごと移動 · ⌥ 切り離す", at: at, color: color))
+            } else if s.candidate == nil, links.isEmpty, m.settings.teamEnabled,
+                      m.controllers.contains(where: { $0 !== c && $0.isVisible }) {
+                // まだ一度もつないでいない人向けの案内
+                pills.append(.init(id: "hint", text: "ほかのクラゲの近くで離すと つながる", at: at, color: color))
+            }
+        }
+        overlay.update(segments: segs, labels: labels, preview: preview, pills: pills, warn: warn)
     }
 
     /// ポインタ追跡（30Hz）から：クラゲの上なら名前を出し、線の近くなら ✂︎ を出す

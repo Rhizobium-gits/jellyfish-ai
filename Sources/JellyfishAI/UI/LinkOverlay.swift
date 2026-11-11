@@ -10,12 +10,19 @@ extension JellyColor {
 /// - 線の近くにポインタを置くと ✂︎ が出て、クリックで切れる
 final class LinkOverlay {
     struct Label { let id: UUID; let text: String; let at: CGPoint; let color: NSColor }
+    /// ドラッグ中の「離すとつながる」表示：相手まで流れる点線と、相手を囲む輪
+    struct Preview { let from: CGPoint; let to: CGPoint; let color: NSColor; let ok: Bool; let radius: CGFloat }
+    /// 操作のヒント（at は吹き出しの上端中央）
+    struct Pill { let id: String; let text: String; let at: CGPoint; let color: NSColor }
+    static let warnColor = NSColor(srgbRed: 1, green: 0.42, blue: 0.38, alpha: 0.95)
 
     var onCut: ((JellyLink) -> Void)?
 
     private var windows: [OverlayWindow] = []
     private var segments: [(JellyLink, CGPoint, CGPoint)] = []
     private var flows: [JellyLink: (toward: UUID, color: NSColor)] = [:]
+    /// ⌥ ドラッグで「離すと切れる」状態の線
+    private var warn: Set<JellyLink> = []
     private var hasContent = false
     private var packetsInFlight = 0
     private let scissors = ScissorsPanel()
@@ -34,8 +41,10 @@ final class LinkOverlay {
 
     // MARK: - 描画の更新
 
-    func update(segments: [(JellyLink, CGPoint, CGPoint)], labels: [Label], preview: (CGPoint, CGPoint)?) {
+    func update(segments: [(JellyLink, CGPoint, CGPoint)], labels: [Label], preview: Preview?,
+                pills: [Pill] = [], warn: Set<JellyLink> = []) {
         self.segments = segments
+        self.warn = warn
         syncWindows()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -43,17 +52,18 @@ final class LinkOverlay {
             w.setLines(segments.map { l, p1, p2 in (l, w.local(p1), w.local(p2)) },
                        styler: { [weak self] l, layer in self?.style(layer, l) })
             w.setLabels(labels.map { Label(id: $0.id, text: $0.text, at: w.local($0.at), color: $0.color) })
-            w.setPreview(preview.map { (w.local($0.0), w.local($0.1)) })
+            w.setPreview(preview.map { Preview(from: w.local($0.from), to: w.local($0.to), color: $0.color, ok: $0.ok, radius: $0.radius) })
+            w.setPills(pills.map { Pill(id: $0.id, text: $0.text, at: w.local($0.at), color: $0.color) })
         }
         CATransaction.commit()
-        hasContent = !segments.isEmpty || !labels.isEmpty || preview != nil
+        hasContent = !segments.isEmpty || !labels.isEmpty || preview != nil || !pills.isEmpty
         updateVisibility()
         if let l = scissorsLink, !segments.contains(where: { $0.0 == l }) { hideScissors() }
     }
 
     private func style(_ layer: CAShapeLayer, _ l: JellyLink) {
-        if l == scissorsLink {
-            layer.strokeColor = NSColor(srgbRed: 1, green: 0.42, blue: 0.38, alpha: 0.95).cgColor
+        if l == scissorsLink || warn.contains(l) {
+            layer.strokeColor = LinkOverlay.warnColor.cgColor
             layer.lineWidth = 3
             layer.removeAnimation(forKey: "flow")
         } else if let f = flows[l] {
@@ -140,7 +150,7 @@ final class LinkOverlay {
             let len = hypot(b.x - a.x, b.y - a.y)
             // クラゲ本体の近く（両端）は除く
             guard len > 70, t * len > 34, (1 - t) * len > 34 else { continue }
-            if d < 9, d < (best?.2 ?? .infinity) { best = (l, q, d) }
+            if d < 12, d < (best?.2 ?? .infinity) { best = (l, q, d) }
         }
         guard let (l, q, _) = best else { hideScissors(); return }
         scissorsAt = q
@@ -196,7 +206,9 @@ private final class OverlayWindow: NSPanel {
     private let root = CALayer()
     private var lines: [JellyLink: CAShapeLayer] = [:]
     private var labels: [UUID: CALayer] = [:]
+    private var pills: [String: CALayer] = [:]
     private let previewLayer = CAShapeLayer()
+    private let ringLayer = CAShapeLayer()
     private let scale: CGFloat
 
     init(screen: NSScreen) {
@@ -220,9 +232,15 @@ private final class OverlayWindow: NSPanel {
         root.frame = v.bounds
         contentView = v
         previewLayer.fillColor = nil
-        previewLayer.strokeColor = NSColor(white: 1, alpha: 0.45).cgColor
-        previewLayer.lineWidth = 2
-        previewLayer.lineDashPattern = [3, 5]
+        previewLayer.lineWidth = 3.5
+        previewLayer.lineDashPattern = [6, 5]
+        previewLayer.contentsScale = scale
+        ringLayer.fillColor = nil
+        ringLayer.lineWidth = 3
+        ringLayer.lineDashPattern = [5, 4]
+        ringLayer.contentsScale = scale
+        ringLayer.isHidden = true
+        root.addSublayer(ringLayer)
         root.addSublayer(previewLayer)
     }
 
@@ -280,12 +298,59 @@ private final class OverlayWindow: NSPanel {
         layer.add(a, forKey: "draw")
     }
 
-    func setPreview(_ seg: (CGPoint, CGPoint)?) {
-        guard let (a, b) = seg else { previewLayer.path = nil; return }
+    /// 相手まで流れる点線 + 相手を囲んで脈打つ輪。動いているのはドラッグ中だけ
+    func setPreview(_ pv: LinkOverlay.Preview?) {
+        guard let pv else {
+            if previewLayer.path != nil {
+                previewLayer.path = nil
+                previewLayer.removeAllAnimations()
+                ringLayer.isHidden = true
+                ringLayer.removeAllAnimations()
+            }
+            return
+        }
+        let color = (pv.ok ? pv.color : LinkOverlay.warnColor).cgColor
         let p = CGMutablePath()
-        p.move(to: a)
-        p.addLine(to: b)
+        p.move(to: pv.from)
+        p.addLine(to: pv.to)
         previewLayer.path = p
+        previewLayer.strokeColor = color
+        if previewLayer.animation(forKey: "flow") == nil {
+            let a = CABasicAnimation(keyPath: "lineDashPhase")
+            a.fromValue = 11
+            a.toValue = 0
+            a.duration = 0.4
+            a.repeatCount = .infinity
+            previewLayer.add(a, forKey: "flow")
+        }
+        let d = pv.radius * 2
+        if ringLayer.bounds.width != d {
+            ringLayer.bounds = CGRect(x: 0, y: 0, width: d, height: d)
+            ringLayer.path = CGPath(ellipseIn: ringLayer.bounds.insetBy(dx: 1.5, dy: 1.5), transform: nil)
+        }
+        ringLayer.position = pv.to
+        ringLayer.strokeColor = color
+        ringLayer.isHidden = false
+        if ringLayer.animation(forKey: "pulse") == nil {
+            let a = CABasicAnimation(keyPath: "transform.scale")
+            a.fromValue = 0.94
+            a.toValue = 1.06
+            a.duration = 0.45
+            a.autoreverses = true
+            a.repeatCount = .infinity
+            a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ringLayer.add(a, forKey: "pulse")
+        }
+    }
+
+    func setPills(_ items: [LinkOverlay.Pill]) {
+        let keep = Set(items.map(\.id))
+        for (id, l) in pills where !keep.contains(id) { l.removeFromSuperlayer(); pills[id] = nil }
+        for it in items where frame.contains(CGPoint(x: it.at.x + frame.minX, y: it.at.y + frame.minY)) {
+            let pill = pills[it.id] ?? makeLabel()
+            if pills[it.id] == nil { pills[it.id] = pill; root.addSublayer(pill) }
+            configure(pill, text: it.text, at: it.at, color: it.color, size: 11.5, height: 20)
+        }
     }
 
     func setLabels(_ items: [LinkOverlay.Label]) {
@@ -294,17 +359,22 @@ private final class OverlayWindow: NSPanel {
         for it in items where frame.contains(CGPoint(x: it.at.x + frame.minX, y: it.at.y + frame.minY)) {
             let pill = labels[it.id] ?? makeLabel()
             if labels[it.id] == nil { labels[it.id] = pill; root.addSublayer(pill) }
-            let font = NSFont.systemFont(ofSize: 10.5, weight: .bold)
-            let str = NSAttributedString(string: it.text, attributes: [.font: font, .foregroundColor: NSColor.white])
-            let ts = str.size()
-            let w = ceil(ts.width) + 12, h: CGFloat = 16
-            pill.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-            pill.position = CGPoint(x: round(it.at.x), y: round(it.at.y - h / 2))
-            pill.backgroundColor = it.color.blended(withFraction: 0.35, of: .black)?.withAlphaComponent(0.88).cgColor
-            if let text = pill.sublayers?.first as? CATextLayer {
-                text.string = str
-                text.frame = CGRect(x: 6, y: (h - ceil(ts.height)) / 2, width: ceil(ts.width) + 1, height: ceil(ts.height))
-            }
+            configure(pill, text: it.text, at: it.at, color: it.color, size: 10.5, height: 16)
+        }
+    }
+
+    private func configure(_ pill: CALayer, text: String, at: CGPoint, color: NSColor, size: CGFloat, height h: CGFloat) {
+        let font = NSFont.systemFont(ofSize: size, weight: .bold)
+        let str = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.white])
+        let ts = str.size()
+        let pad = round(h * 0.38)
+        let w = ceil(ts.width) + pad * 2
+        pill.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+        pill.position = CGPoint(x: round(at.x), y: round(at.y - h / 2))
+        pill.backgroundColor = color.blended(withFraction: 0.35, of: .black)?.withAlphaComponent(0.9).cgColor
+        if let t = pill.sublayers?.first as? CATextLayer {
+            t.string = str
+            t.frame = CGRect(x: pad, y: (h - ceil(ts.height)) / 2, width: ceil(ts.width) + 1, height: ceil(ts.height))
         }
     }
 
@@ -356,7 +426,7 @@ private final class OverlayWindow: NSPanel {
         let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
         for end in [a, b] {
             let s = makeLine()
-            s.strokeColor = NSColor(srgbRed: 1, green: 0.42, blue: 0.38, alpha: 0.95).cgColor
+            s.strokeColor = LinkOverlay.warnColor.cgColor
             let p = CGMutablePath()
             p.move(to: end)
             p.addLine(to: mid)
