@@ -27,11 +27,20 @@ final class PromptTextView: NSTextView {
         return super.performDragOperation(sender)
     }
     var onEscape: (() -> Void)?
+    /// ↑（older = true）/ ↓ で前に送った指示を呼び出す。入れ替えたら true
+    var onHistory: ((_ older: Bool) -> Bool)?
     var placeholder: String = "" { didSet { needsDisplay = true } }
 
     override func keyDown(with e: NSEvent) {
+        // 変換中（日本語入力の候補選び）は ↑↓ も Enter も入力メソッドに渡す
         if hasMarkedText() { super.keyDown(with: e); return }
+        let mods = e.modifierFlags.intersection([.shift, .option, .command, .control])
         switch e.keyCode {
+        // Claude Code のターミナルと同じく、1 行目で ↑ なら前の指示、最後の行で ↓ なら次の指示
+        case 126 where mods.isEmpty && isEditable && caretOnFirstLine:
+            if onHistory?(true) == true { return }
+        case 125 where mods.isEmpty && isEditable && caretOnLastLine:
+            if onHistory?(false) == true { return }
         case 53: onEscape?(); return
         case 36, 76:
             if e.modifierFlags.contains(.shift) || e.modifierFlags.contains(.option) {
@@ -60,6 +69,68 @@ final class PromptTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         needsDisplay = true
+    }
+
+    /// 文字位置 loc を含む行（折り返しも 1 行と数える）の枠
+    private func lineFragment(at loc: Int) -> NSRect? {
+        guard let lm = layoutManager, let tc = textContainer else { return nil }
+        let len = (string as NSString).length
+        if len == 0 { return nil }
+        lm.ensureLayout(for: tc)
+        if loc >= len {
+            if !lm.extraLineFragmentRect.isEmpty { return lm.extraLineFragmentRect }   // 最後が改行
+            return lm.lineFragmentRect(forGlyphAt: lm.glyphIndexForCharacter(at: len - 1), effectiveRange: nil)
+        }
+        return lm.lineFragmentRect(forGlyphAt: lm.glyphIndexForCharacter(at: loc), effectiveRange: nil)
+    }
+
+    var caretOnFirstLine: Bool {
+        let r = selectedRange()
+        guard r.length == 0 else { return false }
+        guard let caret = lineFragment(at: r.location), let first = lineFragment(at: 0) else { return true }
+        return caret.minY <= first.minY + 0.5
+    }
+
+    var caretOnLastLine: Bool {
+        let r = selectedRange()
+        guard r.length == 0 else { return false }
+        guard let caret = lineFragment(at: r.location), let last = lineFragment(at: (string as NSString).length) else { return true }
+        return caret.minY >= last.minY - 0.5
+    }
+}
+
+/// 入力欄の ↑↓ で、そのセッションで送った指示をさかのぼる（Claude Code のターミナルと同じ動き）
+struct PromptHistory {
+    /// 古い → 新しい
+    private(set) var entries: [String] = []
+    /// いま表示している位置。nil なら呼び出す前の入力（下書き）
+    private(set) var index: Int?
+    private var draft = ""
+
+    var isBrowsing: Bool { index != nil }
+
+    mutating func reset() { entries = []; index = nil; draft = "" }
+
+    /// ↑：一つ古いもの。呼び出し始めなら entries を受け取り、今の入力を下書きとして取っておく
+    mutating func older(current: String, load: () -> [String]) -> String? {
+        if index == nil {
+            entries = load()
+            guard !entries.isEmpty else { return nil }
+            draft = current
+            index = entries.count - 1
+            return entries[entries.count - 1]
+        }
+        guard let i = index, i > 0 else { return nil }
+        index = i - 1
+        return entries[i - 1]
+    }
+
+    /// ↓：一つ新しいもの。いちばん新しいものの次は下書きに戻る
+    mutating func newer() -> String? {
+        guard let i = index else { return nil }
+        if i < entries.count - 1 { index = i + 1; return entries[i + 1] }
+        index = nil
+        return draft
     }
 }
 
@@ -253,6 +324,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         input.onSubmit = { [weak self] in self?.submit() }
         input.onDropFiles = { [weak self] u in self?.addAttachments(u) }
         input.onEscape = { [weak self] in self?.closeAndReturn() }
+        input.onHistory = { [weak self] older in self?.recallPrompt(older: older) ?? false }
         input.delegate = self
         inputScroll.documentView = input
         inputScroll.hasVerticalScroller = true
@@ -516,6 +588,44 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     static let attachMarker = "\n\n---\n[添付ファイル]"
 
+    private var history = PromptHistory()
+
+    /// ↑↓ で前に送った指示を入力欄に入れる
+    private func recallPrompt(older: Bool) -> Bool {
+        let text = older ? history.older(current: input.string, load: { promptHistory() }) : history.newer()
+        guard let text else { return false }
+        input.string = text
+        input.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+        input.scrollRangeToVisible(input.selectedRange())
+        relayoutInput()
+        input.needsDisplay = true
+        return true
+    }
+
+    /// このセッションでユーザーが送った指示（古い順）。VS Code やターミナルで打ったものも Claude Code の記録から読む
+    private func promptHistory() -> [String] {
+        let fromSession = runtime.sessionFile.map { ClaudeSessions.messages(in: $0) } ?? []
+        var raw = fromSession.filter { $0.role == .user }.map(\.text)
+        if raw.isEmpty { raw = runtime.turns.map(\.prompt) }
+        return AgentChatController.typedPrompts(raw)
+    }
+
+    /// 記録の中の指示から、ユーザーが打った部分だけを取り出す（仲間からの依頼は除き、
+    /// Jellyfish が付けた画面・添付の情報は外す。続けて同じ指示は 1 つにまとめる）
+    static func typedPrompts(_ raw: [String]) -> [String] {
+        var out: [String] = []
+        for r in raw {
+            if r.hasPrefix(TeamCoordinator.requestMarker) { continue }
+            var t = r
+            for m in [ScreenContext.marker, attachMarker] {
+                if let range = t.range(of: m) { t = String(t[..<range.lowerBound]) }
+            }
+            t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty, out.last != t { out.append(t) }
+        }
+        return out
+    }
+
     private func submit() {
         guard !runtime.isRunning, !capturing else { return }
         let text = input.string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -527,6 +637,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                 + "\n画像やファイルは Read ツールで開いて内容を確認してください。"
         }
         input.string = ""
+        history.reset()
         relayoutInput()
         setAttachments([])
 

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import JellyfishAI
@@ -240,5 +241,100 @@ import Testing
         try Data("x".utf8).write(to: u)
         DataJanitor.cleanUpRemovedAgents(dataDir: root, live: [])
         #expect(fm.fileExists(atPath: u.path))
+    }
+}
+
+@Suite struct PromptHistoryTests {
+    @Test func walksBackAndForthAndRestoresTheDraft() {
+        var h = PromptHistory()
+        let load = { ["一つ目", "二つ目", "三つ目"] }
+        #expect(h.older(current: "書きかけ", load: load) == "三つ目")
+        #expect(h.older(current: "三つ目", load: load) == "二つ目")
+        #expect(h.older(current: "二つ目", load: load) == "一つ目")
+        #expect(h.older(current: "一つ目", load: load) == nil)      // いちばん古いところで止まる
+        #expect(h.newer() == "二つ目")
+        #expect(h.newer() == "三つ目")
+        #expect(h.newer() == "書きかけ")                            // 下書きに戻る
+        #expect(h.newer() == nil)
+        #expect(!h.isBrowsing)
+    }
+
+    @Test func emptyHistoryDoesNothing() {
+        var h = PromptHistory()
+        #expect(h.older(current: "", load: { [] }) == nil)
+        #expect(h.newer() == nil)
+    }
+
+    @Test func keepsOnlyWhatTheUserTyped() {
+        let raw = [
+            "README を直して",
+            "この画面のエラーは？" + ScreenContext.marker + "\n画像: /tmp/screen.png",
+            "これを見て" + AgentChatController.attachMarker + "\n- /tmp/a.pdf",
+            TeamCoordinator.requestMarker + "Agent 2]\n調べて" + TeamCoordinator.requestFooter,
+            "続けて", "続けて",
+            "  ",
+        ]
+        #expect(AgentChatController.typedPrompts(raw) == ["README を直して", "この画面のエラーは？", "これを見て", "続けて"])
+    }
+}
+
+@MainActor @Suite struct PromptKeyTests {
+    func key(_ code: UInt16, _ ch: Int) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                         characters: String(UnicodeScalar(ch)!), charactersIgnoringModifiers: String(UnicodeScalar(ch)!),
+                         isARepeat: false, keyCode: code)!
+    }
+    let up = (UInt16(126), 0xF700), down = (UInt16(125), 0xF701)
+
+    @Test func arrowsRecallOnlyFromTheEdgeLines() {
+        let v = PromptTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        var calls: [Bool] = []
+        v.onHistory = { older in calls.append(older); return true }
+        func caret(_ loc: Int) { v.setSelectedRange(NSRange(location: loc, length: 0)) }
+
+        // 空の入力欄：↑ で呼び出す
+        v.keyDown(with: key(up.0, up.1))
+        #expect(calls == [true])
+
+        // 2 行の入力
+        v.string = "1 行目\n2 行目"
+        let end = (v.string as NSString).length
+        caret(end)                       // 2 行目：↑ は呼び出さない（カーソル移動に任せる）、↓ は呼び出す
+        #expect(!v.caretOnFirstLine && v.caretOnLastLine)
+        v.keyDown(with: key(up.0, up.1))
+        #expect(calls == [true])
+        v.keyDown(with: key(down.0, down.1))
+        #expect(calls == [true, false])
+        caret(2)                         // 1 行目：↑ は呼び出す、↓ は呼び出さない
+        #expect(v.caretOnFirstLine && !v.caretOnLastLine)
+        v.keyDown(with: key(down.0, down.1))
+        #expect(calls == [true, false])
+        v.keyDown(with: key(up.0, up.1))
+        #expect(calls == [true, false, true])
+
+        // 範囲を選んでいるときは呼び出さない
+        v.setSelectedRange(NSRange(location: 0, length: 3))
+        v.keyDown(with: key(up.0, up.1))
+        #expect(calls == [true, false, true])
+    }
+
+    @Test func wrappedLongLineCountsAsSeveralLines() {
+        let v = PromptTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 200))
+        v.string = String(repeating: "とても長い指示の文です。", count: 8)
+        v.setSelectedRange(NSRange(location: (v.string as NSString).length, length: 0))
+        #expect(!v.caretOnFirstLine)      // 折り返した最後の行にいる
+        #expect(v.caretOnLastLine)
+        v.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(v.caretOnFirstLine)
+        #expect(!v.caretOnLastLine)
+    }
+
+    @Test func doesNothingWhileRunning() {
+        let v = PromptTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        var called = false
+        v.onHistory = { _ in called = true; return true }
+        v.isEditable = false
+        v.keyDown(with: key(up.0, up.1))
+        #expect(!called)
     }
 }

@@ -2,6 +2,12 @@
 
 このプロジェクトの変更をここに記録します。書式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/)、バージョンは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [1.0.2] - 2026-11-12
+
+### 追加
+
+- チャットの入力欄で ↑ / ↓ を押すと、そのセッションで前に送った指示を呼び出せる（Claude Code のターミナルと同じく、1 行目で ↑・最後の行で ↓。VS Code やターミナルで打った指示も含む。仲間からの依頼や Jellyfish が付けた画面・添付の情報は含まない。日本語の変換中は今までどおり候補選び）
+
 ## [1.0.1] - 2026-11-12
 
 ### 変更
@@ -64,5 +70,6 @@
 - 長い会話を開いているとき、更新のたびにセッションのファイル全体を読み直していた（増えた分だけ読む）
 - Claude Code をあとから入れても、アプリを再起動するまで見つけられなかった
 
+[1.0.2]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.0
