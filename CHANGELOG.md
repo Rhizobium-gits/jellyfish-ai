@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-12
+
 ### 追加
 
 - チャットの上の段でモデルを選べるようにした（今までは下の段にあり、作業フォルダが長いと押されて見えにくかった）。**🤖 自動** を追加：依頼ごとに、短い・簡単なら Haiku、ふつうは Sonnet、重い依頼は Opus、いちばん重い依頼は今週の Fable の使用量が 75% 未満のときだけ Fable。選んだモデルと理由を状態欄に出す。Fable / Opus / Sonnet / Haiku も自分で選べる
@@ -117,6 +119,7 @@
 - 長い会話を開いているとき、更新のたびにセッションのファイル全体を読み直していた（増えた分だけ読む）
 - Claude Code をあとから入れても、アプリを再起動するまで見つけられなかった
 
+[1.0.4]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.1
