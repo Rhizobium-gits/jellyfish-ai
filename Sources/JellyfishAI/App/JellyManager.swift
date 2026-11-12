@@ -62,6 +62,13 @@ final class JellyManager {
             self?.accountsWindow?.refresh()
             self?.onChange?()
         }
+        // サムネイル・Web のプレビューができたら、開いているチャットを描き直す（続けて届いても 1 回に）
+        ChatMediaCache.shared.onUpdate = { [weak self] in self?.scheduleTranscriptReload() }
+        // モデルの一覧が届いたら、開いているチャットの選択肢を作り直す
+        EngineModelCatalog.shared.onChange = { [weak self] in
+            guard let self else { return }
+            for (_, chat) in self.chats { chat.refresh() }
+        }
         // 使う AI のログイン状態を先に確かめておく（最初の指示で待たないように）
         refreshEngineStatus()
     }
@@ -187,10 +194,10 @@ final class JellyManager {
             return backend()
         case .codex:
             guard let i = CLILocator.find(.codex, override: settings.codexPath), i.missing == nil else { return nil }
-            return CodexBackend(install: i, model: nil)
+            return CodexBackend(install: i, model: settings.codexModel.isEmpty ? nil : settings.codexModel)
         case .gemini:
             guard let i = CLILocator.find(.gemini, override: settings.geminiPath), i.missing == nil else { return nil }
-            return GeminiBackend(install: i, model: nil)
+            return GeminiBackend(install: i, model: settings.geminiModel.isEmpty ? nil : settings.geminiModel)
         }
     }
 
@@ -231,6 +238,53 @@ final class JellyManager {
             // 確かめられなかったとき（CLI の一時的な不調など）は止めない。API キーの環境変数は渡していないので、勝手に従量課金にはならない
             return nil
         }
+    }
+
+    /// Codex・Gemini のモデルの一覧を、古ければ裏で読み直す（モデルは呼ばない）
+    func refreshModels(_ e: AgentEngine, force: Bool = false) {
+        guard e != .claude else { return }
+        let path = cliPath(e)
+        EngineModelCatalog.shared.refresh(e, cli: { CLILocator.find(e, override: path)?.url }, force: force)
+    }
+
+    /// ChatGPT・Gemini の既定のモデル（"" = CLI の既定）
+    func setDefaultModel(_ m: String, for e: AgentEngine) {
+        switch e {
+        case .claude: setDefaultModel(m)
+        case .codex: updateSettings { $0.codexModel = m }
+        case .gemini: updateSettings { $0.geminiModel = m }
+        }
+        for (_, chat) in chats { chat.refresh() }
+    }
+
+    func defaultModelID(_ e: AgentEngine) -> String {
+        switch e {
+        case .claude: return settings.model
+        case .codex: return settings.codexModel
+        case .gemini: return settings.geminiModel
+        }
+    }
+
+    /// その AI の既定のモデルの名前（チャット・メニューの表示用）
+    func defaultModelLabel(_ e: AgentEngine) -> String {
+        if e == .claude { return defaultModelName }
+        let id = defaultModelID(e)
+        if id.isEmpty { return L("%@ の設定", e.cliTitle) }
+        return EngineModelCatalog.shared.model(e, id: id)?.name ?? id
+    }
+
+    func reloadOpenChats() {
+        for (_, chat) in chats where chat.isVisible { chat.reloadTranscript() }
+    }
+
+    private var transcriptReload: DispatchWorkItem?
+    private func scheduleTranscriptReload() {
+        transcriptReload?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            for (_, chat) in self?.chats ?? [:] where chat.isVisible { chat.reloadTranscript() }
+        }
+        transcriptReload = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: w)
     }
 
     /// 使う AI（既定）を変える
@@ -314,7 +368,7 @@ final class JellyManager {
     }
 
     /// その AI の公式のログインをターミナルで開く（Jellyfish はパスワード・トークン・API キーを扱わない）。
-    /// 入っていなければ入れ方の案内を開く
+    /// 入っていなければ、許可を求めてから入れて、続けてログインする
     func openLogin(_ e: AgentEngine, folder: URL? = nil) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -325,11 +379,82 @@ final class JellyManager {
             case .gemini: cli = CLILocator.find(.gemini, override: self.settings.geminiPath, maxAge: 0)?.url
             }
             DispatchQueue.main.async {
-                guard let cli else { NSWorkspace.shared.open(e.setupURL); return }
+                guard let cli else { self.offerInstall(e); return }
                 if !EngineLogin.open(e, cli: cli, folder: folder, allowAPI: self.settings.allowAPIBilling) { NSSound.beep() }
                 AppLog.write("login opened: \(e.rawValue)\(folder == nil ? "" : " (folder)")")
             }
         }
+    }
+
+    /// CLI を入れるかを聞く。許可されたら、そのコマンドをターミナルで実行し、続けてログインを始める
+    func offerInstall(_ e: AgentEngine) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let npm = e == .claude ? nil : EngineInstall.findTool("npm")
+            let prefix = npm.flatMap { EngineInstall.npmPrefix($0) }
+            let brew = e == .claude ? nil : EngineInstall.findTool("brew")
+            let plan = EngineInstall.plan(e, npm: npm, npmWritable: prefix?.writable ?? false, brew: brew)
+            DispatchQueue.main.async { self.askInstall(e, plan: plan, npmPrefix: prefix?.path) }
+        }
+    }
+
+    private func askInstall(_ e: AgentEngine, plan: EngineInstall.Plan?, npmPrefix: String?) {
+        let a = NSAlert()
+        a.icon = NSApp.applicationIconImage
+        guard let plan else {
+            a.messageText = L("%@ が入っていません", e.cliTitle)
+            a.informativeText = (e == .codex
+                ? L("ChatGPT のデスクトップアプリを入れて ChatGPT にログインすると、その中の Codex CLI をそのまま使えます。") + "\n\n" : "")
+                + L("npm（Node.js）も Homebrew も見つからないため、ここからは入れられません。公式の案内に従って入れてから、もう一度ログインしてください。")
+            a.addButton(withTitle: L("公式の案内を開く"))
+            a.addButton(withTitle: L("閉じる"))
+            NSApp.activate(ignoringOtherApps: true)
+            if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(e.setupURL) }
+            return
+        }
+        let whereNote: String
+        switch plan.tool {
+        case .official: whereNote = L("Anthropic の公式インストーラで、あなたのホームの ~/.local/bin に入れます。")
+        case .npm: whereNote = L("npm の公式パッケージを、npm のグローバル（%@）に入れます。", npmPrefix ?? "npm prefix -g")
+        case .brew: whereNote = L("Homebrew の公式パッケージとして入れます。")
+        }
+        a.messageText = L("%@ を入れてログインしますか？", e.cliTitle)
+        a.informativeText = L("%@ が入っていません。許可すると、ターミナルで次のコマンドを実行して入れ、続けてログインを始めます。あとはブラウザでログインするだけです。", e.cliTitle)
+            + "\n\n" + plan.command + "\n\n" + whereNote + "\n"
+            + L("管理者のパスワード（sudo）は使いません。Jellyfish はパスワード・API キーを扱いません。")
+        a.addButton(withTitle: L("入れてログイン"))
+        a.addButton(withTitle: L("公式の案内を開く"))
+        a.addButton(withTitle: L("キャンセル"))
+        NSApp.activate(ignoringOtherApps: true)
+        switch a.runModal() {
+        case .alertFirstButtonReturn:
+            guard EngineInstall.open(plan, allowAPI: settings.allowAPIBilling) else { NSSound.beep(); return }
+            let via: String
+            switch plan.tool { case .official: via = "official"; case .npm: via = "npm"; case .brew: via = "brew" }
+            AppLog.write("install opened: \(e.rawValue) via \(via)")
+            watchInstall(e)
+        case .alertSecondButtonReturn:
+            NSWorkspace.shared.open(e.setupURL)
+        default: break
+        }
+    }
+
+    /// 入れている間、入ったか・ログインできたかを見に行く（15 分まで）
+    private var installWatch: [AgentEngine: Timer] = [:]
+    private func watchInstall(_ e: AgentEngine) {
+        installWatch[e]?.invalidate()
+        let start = Date()
+        let t = Timer(timeInterval: 5, repeats: true) { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            if EngineAuth.shared.cached(e)?.usable == true || Date().timeIntervalSince(start) > 900 {
+                t.invalidate()
+                self.installWatch[e] = nil
+                return
+            }
+            self.refreshEngineStatus([e], relocate: true)
+        }
+        RunLoop.main.add(t, forMode: .common)
+        installWatch[e] = t
     }
 
     func backend() -> AgentBackend? {
@@ -954,6 +1079,9 @@ final class JellyManager {
     }
 
     /// アプリ終了時：実行中のエージェントを中断して記録を残す
+    /// 作業中のクラゲがいるか（アップデートで入れ替える前に確かめる）
+    var anyAgentBusy: Bool { runtimes.values.contains { $0.isRunning } || detached.contains { $0.isRunning } }
+
     func shutdown() {
         for rt in runtimes.values where rt.isRunning { rt.cancel() }
         for rt in detached where rt.isRunning { rt.cancel() }

@@ -70,6 +70,31 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         if item.button?.image !== img { item.button?.image = img }
     }
 
+    /// Claude の下：ログインしているほかの AI の使用量（ChatGPT は Codex の記録にある 5 時間・今週の枠、Gemini は Jellyfish が動かした回数）
+    private func otherEngineUsageItems() -> [NSMenuItem] {
+        var out: [NSMenuItem] = []
+        let today = manager.usage.recent(days: 1), week = manager.usage.recent(days: 7)
+        func calls(_ rows: [UsageLedger.Row], _ e: AgentEngine) -> Int { rows.filter { $0.engine == e }.reduce(0) { $0 + $1.count.calls } }
+        for e in [AgentEngine.codex, .gemini] {
+            guard let st = EngineAuth.shared.cached(e), st.usable else { continue }
+            let counts = L("Jellyfish から：今日 %ld 回 · 7 日で %ld 回", calls(today, e), calls(week, e))
+            switch e {
+            case .codex:
+                let lim = CodexUsage.latest()
+                let status = lim?.observedAt.map { L("%@の値", AccountMenu.relative($0)) } ?? ""
+                var notes = [counts]
+                if lim == nil { notes.insert(L("枠の％は、Codex を一度使うと出ます"), at: 0) }
+                out += AccountMenu.engineItems(title: e.displayName, detail: CodexUsage.planName(lim?.plan) ?? L("ChatGPT のアカウント"),
+                                               status: status, limits: lim?.limits ?? [], notes: notes)
+            case .gemini:
+                out += AccountMenu.engineItems(title: e.displayName, detail: st.account ?? L("Google アカウント"), status: "",
+                                               limits: [], notes: [counts, L("残りの枠は Jellyfish からは読めません")])
+            case .claude: break
+            }
+        }
+        return out
+    }
+
     /// 使用量（AI ごと・モデルごと・アカウントごと、直近 7 日）。Claude は今週の上限（％）も
     private func usageMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: L("📊 使用量（AI ごと・直近 7 日）"), action: nil, keyEquivalent: "")
@@ -93,12 +118,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 um.addItem(.header("   " + L("%@：%ld 回 · 入力 %@ · 出力 %@ トークン", model, r.count.calls,
                                               UsageLedger.short(r.count.input), UsageLedger.short(r.count.output)) + who))
             }
-            if e != .claude { um.addItem(.header("   " + L("残りの枠は、それぞれのサービスの画面で確かめてください"))) }
+            if e == .codex, let lim = CodexUsage.latest() {
+                um.addItem(.header("   " + lim.limits.map { "\($0.label) \($0.percent)%" }.joined(separator: " · ")))
+            } else if e != .claude {
+                um.addItem(.header("   " + L("残りの枠は、それぞれのサービスの画面で確かめてください")))
+            }
             um.addItem(.separator())
         }
         if um.items.isEmpty { um.addItem(.header(L("まだ使っていません"))) }
         um.addItem(.header(L("・Jellyfish が動かした分を、CLI が報告したトークンで数えています（この Mac の中だけ）")))
         um.addItem(.header(L("・Claude の％は Claude Code の /usage（アカウント全体）")))
+        um.addItem(.header(L("・ChatGPT の％は、Codex CLI が最後に使ったときに記録した値（アカウント全体）")))
         item.submenu = um
         return item
     }
@@ -124,8 +154,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
         am.addItem(.separator())
         for e in AgentEngine.allCases {
-            let usable = EngineAuth.shared.cached(e)?.usable == true
-            am.addItem(ClosureMenuItem(usable ? L("%@：別のアカウントでログイン…", e.displayName) : L("%@ にログイン…", e.displayName)) { [weak self] in
+            let st = EngineAuth.shared.cached(e)
+            let usable = st?.usable == true
+            let missing = st.map { if case .notInstalled = $0.login { return true }; return false } ?? false
+            am.addItem(ClosureMenuItem(usable ? L("%@：別のアカウントでログイン…", e.displayName)
+                                       : missing ? L("%@ を入れてログイン…", e.displayName) : L("%@ にログイン…", e.displayName)) { [weak self] in
                 self?.manager.openLogin(e)
             })
         }
@@ -136,6 +169,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             self.manager.setAllowAPIBilling(!self.manager.settings.allowAPIBilling)
         })
         am.addItem(.header(L("・ログインはそれぞれの公式の画面（ターミナルとブラウザ）で。Jellyfish はパスワード・API キーを扱わない")))
+        am.addItem(.header(L("・入っていない AI は、許可したときだけ公式のパッケージを入れる（sudo は使わない）")))
         am.addItem(.header(L("・勝手に課金しない：API キー（従量課金）でログインしている AI は使わず、API キーの環境変数も渡さない")))
         item.submenu = am
         return item
@@ -197,6 +231,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         ClaudeAccount.shared.refreshIfStale(claudeOverride: s.claudePath)
         AccountMenu.items(ClaudeAccount.shared.snapshot, loading: ClaudeAccount.shared.loading).forEach { menu.addItem($0) }
+        otherEngineUsageItems().forEach { menu.addItem($0) }
         menu.addItem(usageMenuItem())
         if URLRoutes.automationToken != nil {
             menu.addItem(.header(L("⚠️ 自動化モード（JELLYFISH_AUTOMATION=1）：合言葉つきの jellyfish:// で指示の送信なども受け付けています")))
@@ -354,8 +389,25 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         mm.autoenablesItems = false
         let choices: [(String, String)] = [(L("🤖 自動（依頼に合わせて選ぶ）"), ModelRouter.auto), (L("Claude Code に任せる"), "")]
             + ModelRouter.models.map { ($0.label, $0.value) }
+        mm.addItem(.header("Claude"))
         for (label, value) in choices {
             mm.addItem(ClosureMenuItem(label, checked: s.model == value) { [weak self] in self?.manager.setDefaultModel(value) })
+        }
+        // ChatGPT（Codex）・Gemini：それぞれの CLI が出すモデルの一覧から
+        for e in [AgentEngine.codex, .gemini] {
+            manager.refreshModels(e)
+            let list = EngineModelCatalog.shared.models(e)
+            guard !list.isEmpty || EngineAuth.shared.cached(e)?.usable == true else { continue }
+            mm.addItem(.separator())
+            mm.addItem(.header(e.displayName))
+            let current = manager.defaultModelID(e)
+            mm.addItem(ClosureMenuItem(L("%@ の設定に任せる", e.cliTitle), checked: current.isEmpty) { [weak self] in self?.manager.setDefaultModel("", for: e) })
+            for m in list {
+                let it = ClosureMenuItem(m.name, checked: current == m.id) { [weak self] in self?.manager.setDefaultModel(m.id, for: e) }
+                it.toolTip = m.detail
+                mm.addItem(it)
+            }
+            if list.isEmpty { mm.addItem(.header(L("・モデルの一覧を読んでいます…"))) }
         }
         mm.addItem(.separator())
         mm.addItem(.header(L("・クラゲごとのモデルはチャットの上の段で選べる（こちらは選んでいないクラゲの既定）")))
@@ -381,7 +433,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         // Claude 以外の AI で動かすときの決まり
         pm.addItem(.header(L("使う AI（既定）: %@", s.engine.displayName)))
         for e in AgentEngine.allCases where e != .claude { pm.addItem(.header("・\(e.displayName): " + e.policyLine)) }
-        pm.addItem(.header(L("・チーム・PC 操作・自律組織・外部ツール（MCP）は Claude だけ")))
+        pm.addItem(.header(L("・チーム（仲間を作る・頼む）と自律組織はどの AI でも。PC 操作・外部ツール（MCP）・モデルの「自動」は Claude だけ")))
         pm.addItem(.header(s.allowAPIBilling ? L("⚠️ API キー（従量課金）での利用を許可しています") : L("・API キー（従量課金）でのログイン・環境変数は使わない")))
         pm.addItem(.separator())
         pm.addItem(.header("claude: \(manager.claudePathDescription)"))
@@ -448,6 +500,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         extItem.submenu = em
         menu.addItem(extItem)
 
+        // チャットの Web ページのプレビュー（オンのときは、そのページを Mac の LinkPresentation が読みに行く）
+        let lp = ClosureMenuItem(L("チャットに Web ページのプレビューを出す"), checked: s.linkPreviews) { [weak self] in
+            self?.manager.updateSettings { $0.linkPreviews.toggle() }
+            self?.manager.reloadOpenChats()
+        }
+        lp.toolTip = L("会話に出てきた Web ページの表紙の画像とタイトルを出します。出すときは、そのページを読みに行きます。画像・PDF のファイルは、オフでもこの Mac の中で表示します。")
+        menu.addItem(lp)
+
         let login = ClosureMenuItem(L("ログイン時に自動起動"), checked: LoginItem.isEnabled) { [weak self] in
             let want = !LoginItem.isEnabled
             if let err = LoginItem.set(want) {
@@ -476,7 +536,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem(L("Jellyfish AI について")) { AppInfo.showAbout() })
-        menu.addItem(ClosureMenuItem(L("アップデートを確認…")) { UpdateChecker.check() })
+        menu.addItem(ClosureMenuItem(L("アップデートを確認…")) { [weak self] in UpdateChecker.check(manager: self?.manager) })
         menu.addItem(ClosureMenuItem(L("使い方（GitHub）")) { NSWorkspace.shared.open(AppInfo.repoURL) })
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem(L("Jellyfish AI を終了"), key: "q") { NSApp.terminate(nil) })

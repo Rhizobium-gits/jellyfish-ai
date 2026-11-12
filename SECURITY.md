@@ -27,7 +27,13 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
   - Claude：Auto モード（`--permission-mode auto`）
   - Codex：`codex exec --json` を `sandbox_mode="workspace-write"`（作業フォルダの中だけ書ける・ネットワークなし）・`approval_policy="never"`（権限の追加を求めない）で
   - Gemini：`--approval-mode auto_edit`（作業フォルダの中の編集だけ自動で承認し、シェルのコマンドは実行しない）。フォルダの信頼の確認は飛ばさず、信頼していないフォルダでは動かしません
-- チームを率いること（仲間に頼む・仲間を作る）・PC 操作・自律組織・外部ツール（MCP）は Claude だけで使えます（Codex・Gemini には Jellyfish の MCP ツールを渡しません）。Codex・Gemini のクラゲは、仲間として頼まれた作業だけをします
+- 添付：Codex には、指示の添付の欄にある画像だけを `--image` で添えます（サンドボックスの書ける場所は広げません）。Gemini には、そのクラゲのデータフォルダ（`agents/<ID>/` の中の画面の画像・文字起こしの置き場所）だけをワークスペースに足します。ユーザーが落としたファイルのあるフォルダ（デスクトップなど）は足しません（足すと、そこが Gemini の自動で承認する編集の範囲に入るため）
+- Codex・Gemini のモデルの一覧は、それぞれの CLI の一覧の表示（`codex debug models`・`gemini models -o json`）で読むだけで、モデルは呼びません。ChatGPT の考える強さは、英小文字の名前（カタログにあるもの）だけを `model_reasoning_effort` に渡します
+- ChatGPT のデスクトップアプリに入っている Codex CLI（`/Applications/ChatGPT*.app/Contents/Resources/codex-cli/bin/codex`）も、ほかの場所の CLI と同じく `--version`・`--help` で確かめてから使います
+- **チームのツール（仲間を作る・頼む・結果を待つ）は、どの AI のクラゲにも渡します**。PC 操作のツール・外部ツール（MCP）・モデルの「自動」は Claude だけです
+  - Codex：その実行だけ `--config mcp_servers.jellyfish.*` で Jellyfish の MCP サーバー（このアプリの `--mcp-bridge`）を足し、`enabled_tools` でチームのツールだけを出し、`default_tools_approval_mode="approve"` で **このサーバーのツールだけ** 確認なしにします（Claude で `--allowedTools` に入れているのと同じ範囲）。ユーザーの `~/.codex/config.toml` は書き換えません。チームの案内は `developer_instructions` で渡します
+  - Gemini：いちばん優先度の低い「システムの既定」の設定ファイル（`GEMINI_CLI_SYSTEM_DEFAULTS_PATH`）をそのクラゲのフォルダに作って jellyfish の MCP サーバーを足し（もとの既定があれば合わせる。`mcpServers` は合わさるので、ユーザー・管理者の設定はそのまま優先されます）、`includeTools` でチームのツールだけにし、`--policy` で `mcpName = "jellyfish"` のツールだけを許します。ユーザーの `~/.gemini/settings.json` は書き換えません。チームの案内は MCP の `instructions` で渡します（Gemini は信頼したフォルダでだけ読み込みます）
+  - どちらも、つないできたプロセスがそのクラゲの CLI の子孫か、1 回の実行につき 1 本かを確かめるのは Claude と同じです
 - AI をまたいだデータの受け渡しは、リーダーの依頼ごとに作る **受け渡し用のフォルダ**（`~/Library/Application Support/JellyfishAI/handoff/<日時>-agent<番号>-<ランダム>`、本人だけが開ける 700）だけで行います。その依頼のチームの仲間にだけ、作業フォルダに加えてこのフォルダの読み書きを許します（Claude は `--add-dir`、Codex はサンドボックスの `writable_roots`、Gemini は `--include-directories`）。サンドボックスの外の場所を広く開けることはしません。空のフォルダはそのターンの終わりに、使ったものは 7 日で片付けます
 - AI ごと・モデルごとの使用量（呼び出しの回数と、CLI が報告したトークン）は `usage.json`（600）に日ごとに数えるだけで、どこにも送りません。Claude のアカウントはメールそのものではなく、メールの短いハッシュで区別します。60 日より古い日は捨てます
 
@@ -42,10 +48,20 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
 
 ### 通信
 
-- Jellyfish AI 自身が行う通信は、メニューの「アップデートを確認…」を選んだときに GitHub の公開 API（最新リリースの番号）を 1 回読むことだけです。自動の確認・利用状況の送信・解析は行いません
+- Jellyfish AI 自身が行う通信は次のものだけです。自動の確認・利用状況の送信・解析は行いません
+  - メニューの「アップデートを確認…」を選んだとき：GitHub の公開 API（最新リリース）を 1 回読む
+  - その画面で「アップデートする」を押したとき：そのリリースの `JellyfishAI-<版>.zip` と `SHA256SUMS.txt` を取ってくる（下の「アップデート」）
+  - チャットの Web ページのプレビュー：http / https のページを Mac の LinkPresentation（メッセージなどのリンクのプレビューと同じ仕組み）で読み込み、タイトルと表紙の画像を出します。自動で読み込むのは **ユーザー自身が書いた URL だけ** です。エージェントの返答に出てきた URL は、その下の「表紙を見る」を押したときだけ読み込みます（エージェントが読んだ Web ページ・ファイルに仕込まれた指示で、秘密を入れた URL（`https://…/?d=…` など）を書かされても、アプリが勝手にそこへ送らないように。エージェント自身の通信は各 CLI の安全の仕組みが見ますが、アプリが読みに行く分はそこを通らないため）。1 つのメッセージにつき 6 件まで、10 秒で打ち切ります。読み込んだ先のサーバーには、そのページを開いたのと同じ情報（IP アドレスなど）が伝わるので、気になる場合はメニューバーのクラゲ ›「チャットに Web ページのプレビューを出す」をオフにしてください。画像・PDF のファイルのサムネイルは Quick Look で端末内で作り、どこにも送りません（実在する画像・PDF の 50MB までのファイルだけ）
 - エージェントの指示・添付（画面・ファイル・文字起こし）は、Claude Code を通じて Anthropic に送られます。どこへ何が送られるかは Claude Code の設定と規約に従います
+- ChatGPT（Codex）にログインしていれば、メニューの ChatGPT の欄のために、Codex CLI が自分の記録（`$CODEX_HOME/sessions/…/rollout-*.jsonl`、既定は `~/.codex`）の終わりの方にある `token_count` の行から、プラン・5 時間と今週の枠の％・リセットの時刻だけを読みます（直近 8 日の新しいファイルから。書き換えず、どこにも送らず、会話の中身は使いません。モデルも呼びません）
 - メニューバーのメニューを開くと、いちばん上のアカウントと使用量の欄のために `claude auth status --json`（メール・プラン）と `claude -p --output-format json -- /usage`（今週の使用量）を実行します。前に読んでから 1 分以内なら実行しません。`/usage` は Claude Code の組み込みコマンドなのでモデルは呼ばれず、トークンも使いません（使用量は Claude Code が Anthropic から取得します）。作業フォルダはデータフォルダで、セッションは残しません（`--no-session-persistence`）。メールはメニューに出すだけで、ログには書きません
 - システムの音の文字起こしは macOS の SpeechAnalyzer で端末内で処理します
+- チャットの 🎙（音声入力）は macOS の音声入力をそのまま始めるだけで、Jellyfish は音声を受け取りません。音声の扱いは macOS の音声入力の設定（システム設定 › キーボード › 音声入力）に従います
+
+### CLI を入れる（許可したときだけ）
+
+- 入っていない AI の「入れてログイン…」は、実行するコマンドをそのまま見せて許可を求め、許可されたときだけ、そのコマンドをターミナル（データフォルダの `install-<AI>.command`、本人だけが実行できる 700）で実行し、続けてその CLI の公式のログインを始めます。Jellyfish 自身はダウンロードもインストールもしません
+- コマンドは決まったものだけです：Claude は Anthropic の公式インストーラ（`curl -fsSL https://claude.ai/install.sh | bash`）、Codex は `npm install -g @openai/codex` か `brew install --cask codex`、Gemini は `npm install -g @google/gemini-cli` か `brew install gemini-cli`。npm はグローバルの入れ先に書けるときだけ使い、**管理者のパスワード（sudo）は使いません**。API キーの環境変数は、許可していなければ外してから実行します
 
 ### 外からの操作
 
@@ -58,6 +74,15 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
 - 自律組織モード（既定オフ）では、エージェントが `form_team` で仲間を作って作業を任せます。仲間の数はチーム 8 体・全体 20 体・作成の深さ 2 段までで、仲間には PC 操作のツールを渡しません。仲間の分だけ Claude Code の使用量が増えます
 - 自律組織の学習は端末内だけで計算します（Anthropic にも送りません）。依頼の特徴（語の重み）と先頭の 60 文字、選んだ型、成果、反応を `~/Library/Application Support/JellyfishAI/org/`（本人だけが読める権限）に保存し、メニューの「学習をリセット…」で消せます
 - エージェントへの指示は claude の引数の最後に `--` のあとで渡します（指示がオプションとして解釈されない）
+
+### アップデート
+
+- メニューの「アップデートを確認…」で新しい版が見つかり、本人が「アップデートする」を押したときだけ入れ替えます
+- 取ってくるのは、このリポジトリのそのリリースのファイル（`https://github.com/Rhizobium-gits/jellyfish-ai/releases/download/<タグ>/` のもの）だけです。リダイレクトは GitHub（`github.com`・`*.githubusercontent.com`）の https の中だけ許します
+- 入れ替える前に確かめること：`SHA256SUMS.txt` の SHA-256 と合うか、中身のバンドル ID が同じで版がリリースの番号どおりか、コード署名が正しいか（Security フレームワークで、全アーキテクチャ・入れ子のコードまで厳しく）。いまの版が証明書で署名されていれば、新しい版も **同じ証明書** の署名であることを求めます（別の証明書の版には入れ替えません）
+- 作業中のクラゲがいるとき、アプリを書き換えられない場所から開いているときは入れ替えません。macOS がアプリの入れ替えを止めたとき（アプリ管理）は、その設定の場所を案内するだけで、回り道はしません
+- 入れ替えは、いまの版をデータフォルダの `update/` に退かして新しい版を同じ場所に置き、アプリが終わってから新しい版を開いて古い版を消します。置けなかったときは元に戻します
+- アドホック署名の版どうしでは、チェックサムは「壊れていない・GitHub のリリースのとおり」を確かめるもので、作った人を確かめるものではありません（GitHub の https を信じることになります）。気になる場合は、ソースから自分でビルドしてください
 
 ### 保存するデータ
 

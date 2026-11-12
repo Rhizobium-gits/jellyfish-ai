@@ -153,6 +153,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private let renameButton = NSButton(title: L("名前"), target: nil, action: nil)
     private let pcButton = NSButton(title: L("🖱 PC 操作"), target: nil, action: nil)
     private let listenButton = NSButton(title: "🎧", target: nil, action: nil)
+    /// Mac の音声入力（システム設定 › キーボード › 音声入力）で入力欄に話して入れる
+    private let dictationButton = NSButton(title: "🎙", target: nil, action: nil)
     private var listenTimer: Timer?
     private let transcript = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
     private let transcriptScroll = NSScrollView()
@@ -175,6 +177,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     /// このクラゲが使う AI（Claude・ChatGPT（Codex）・Gemini。先頭は「既定」＝メニューバーの「使う AI」）
     private let enginePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    /// いまモデル・強さの欄に出している選択肢（AI によって変わる）
+    private var shownModels: [(label: String, value: String?)] = AgentChatController.models
+    private var shownEfforts: [(label: String, value: String?)] = AgentChatController.efforts
     private let effortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var inputHeight: NSLayoutConstraint!
     private var attachRow: NSStackView?
@@ -251,6 +256,12 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         renameButton.action = #selector(renameAgent)
         pcButton.action = #selector(togglePC)
         listenButton.action = #selector(toggleListen)
+        dictationButton.bezelStyle = .accessoryBarAction
+        dictationButton.controlSize = .small
+        dictationButton.font = .systemFont(ofSize: 11.5)
+        dictationButton.target = self
+        dictationButton.action = #selector(startDictation)
+        dictationButton.toolTip = L("話して入力する（Mac の音声入力。システム設定 › キーボード › 音声入力 のショートカットでも始められます。使えないときは、そこで音声入力をオンに）")
         listenButton.setButtonType(.pushOnPushOff)
         listenButton.toolTip = L("システムの音（会議・動画など）を聞き取って文字にする。止めると文字起こしを添付するので「議事録にして」「翻訳して」と頼める")
         pcButton.setButtonType(.pushOnPushOff)
@@ -313,7 +324,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         effortPopup.action = #selector(effortChanged)
         modelPopup.toolTip = L("このクラゲが使うモデル。自動は依頼ごとに Haiku・Sonnet・Opus・Fable から選ぶ。既定はメニューバーの「🧠 モデル（既定）」に従う（次の指示から反映）")
         effortPopup.toolTip = L("考える強さ（--effort。次の指示から反映）")
-        let controlsRow = NSStackView(views: [screenPopup, attachButton, pcButton, listenButton, folderButton, NSView(), terminalButton])
+        let controlsRow = NSStackView(views: [screenPopup, attachButton, dictationButton, pcButton, listenButton, folderButton, NSView(), terminalButton])
         controlsRow.orientation = .horizontal
         controlsRow.spacing = 6
         // 幅が足りないときはウィンドウを広げず、フォルダ名・ポップアップの文字を省略して縮める
@@ -335,6 +346,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         configureScrollable(transcript)
         transcript.isEditable = false
         transcript.isSelectable = true
+        transcript.delegate = self
         transcript.drawsBackground = false
         transcript.textContainerInset = NSSize(width: 6, height: 8)
         transcriptScroll.documentView = transcript
@@ -519,14 +531,32 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         enginePopup.item(at: 0)?.title = L("AI: 既定（%@）", (manager?.settings.engine ?? .claude).displayName)
         enginePopup.selectItem(at: runtime.engine.flatMap { e in AgentEngine.allCases.firstIndex(of: e).map { $0 + 1 } } ?? 0)
         enginePopup.isEnabled = !running
-        modelPopup.item(at: 1)?.title = eng == .claude
+        // モデルと強さ：AI ごとの選択肢（Codex・Gemini はそれぞれの CLI が出す一覧から）
+        if eng != .claude { manager?.refreshModels(eng) }
+        let models = modelChoices(eng)
+        if models.map(\.label) != shownModels.map(\.label) || models.map(\.value) != shownModels.map(\.value) {
+            shownModels = models
+            AgentChatController.fill(modelPopup, models.map(\.label))
+            for (i, m) in models.enumerated() {
+                if let id = m.value, let d = EngineModelCatalog.shared.model(eng, id: id)?.detail { modelPopup.item(at: i)?.toolTip = d }
+            }
+        }
+        let defaultIndex = eng == .claude ? 1 : 0
+        modelPopup.item(at: defaultIndex)?.title = eng == .claude
             ? L("既定（%@）", manager?.defaultModelName ?? L("Claude Code に任せる"))
-            : L("モデル: %@ の既定", eng.cliTitle)
-        modelPopup.selectItem(at: eng == .claude ? (AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 1) : 1)
-        modelPopup.isEnabled = eng == .claude
-        effortPopup.selectItem(at: AgentChatController.efforts.firstIndex { $0.value == runtime.effort } ?? 0)
-        effortPopup.isEnabled = eng == .claude && (manager?.supportsEffort ?? true)
-        if eng != .claude { effortPopup.selectItem(at: 0) }
+            : L("既定（%@）", manager?.defaultModelLabel(eng) ?? eng.cliTitle)
+        modelPopup.selectItem(at: shownModels.firstIndex { $0.value == runtime.model } ?? defaultIndex)
+        modelPopup.isEnabled = !running
+        let efforts = effortChoices(eng, model: runtime.model ?? (manager?.defaultModelID(eng)).flatMap { $0.isEmpty ? nil : $0 })
+        if efforts.map(\.label) != shownEfforts.map(\.label) {
+            shownEfforts = efforts
+            AgentChatController.fill(effortPopup, efforts.map(\.label))
+        }
+        effortPopup.selectItem(at: shownEfforts.firstIndex { $0.value == runtime.effort } ?? 0)
+        effortPopup.isEnabled = !running && shownEfforts.count > 1 && (eng != .claude || (manager?.supportsEffort ?? true))
+        effortPopup.toolTip = eng == .gemini
+            ? L("Gemini CLI には考える強さを指定するオプションが無いため、Gemini CLI の設定に任せます")
+            : L("考える強さ（--effort。次の指示から反映）")
         pcButton.isEnabled = eng.supportsJellyfishTools
         pcButton.toolTip = eng.supportsJellyfishTools
             ? L("このエージェントに PC 操作（画面を見る・クリック・入力）を許す。操作中は画面の縁が光り、Esc で止まる。次の指示から反映")
@@ -560,7 +590,15 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                                                               : L("（つながっている %@ に分担させることもできます）", hintNames))
         input.placeholder = running ? L("実行中です。終わったら続けて指示できます")
             : (runtime.turns.isEmpty && !runtime.sessionStarted ? L("%@ に頼みたいことを入力…", r.title) : L("この結果に続けて指示する…")) + teamHint
-        footer.stringValue = L("⏎ 送信   ⇧⏎ 改行   esc 閉じる   ·   %@   ·   記録: Claude Code のセッション", manager?.policyDescription ?? "")
+        // 下の段：その AI の動かし方と、会話がどこに残るか
+        switch eng {
+        case .claude:
+            footer.stringValue = L("⏎ 送信   ⇧⏎ 改行   esc 閉じる   ·   %@   ·   記録: Claude Code のセッション", manager?.policyDescription ?? "")
+        case .codex, .gemini:
+            let policy = eng == .codex ? "Codex · workspace-write" : "Gemini · auto_edit"
+            footer.stringValue = L("⏎ 送信   ⇧⏎ 改行   esc 閉じる   ·   %@   ·   記録: %@ のセッション", policy, eng.cliTitle)
+        }
+        footer.toolTip = eng.policyLine
         scheduleReload()
     }
 
@@ -575,6 +613,16 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     // MARK: 会話の表示
 
+    /// 画像・PDF のサムネイルと Web ページのプレビューを足す（できていないものは、できたらもう一度描く）
+    /// autoWeb：Web のページを自動で読みに行くか（自分の書いた URL だけ。エージェントの返答の URL は「表紙を見る」を押したとき）
+    private func appendMedia(_ refs: [ChatMedia.Ref], autoWeb: Bool, to out: NSMutableAttributedString) {
+        let web = manager?.settings.linkPreviews ?? true
+        var seen = Set<ChatMedia.Ref>()
+        for r in refs where seen.insert(r).inserted {
+            if let a = ChatMediaCache.shared.attachment(r, webPreviews: web, autoWeb: autoWeb) { out.append(a) }
+        }
+    }
+
     func reloadTranscript() {
         guard let jelly else { return }
         let accent = NSColor(srgbRed: CGFloat(jelly.record.color.flat.x), green: CGFloat(jelly.record.color.flat.y),
@@ -586,16 +634,25 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                                                                      .foregroundColor: c, .paragraphStyle: ps])
         }
         var messages: [SessionMessage] = []
-        if let f = runtime.sessionFile { messages = ClaudeSessions.messages(in: f) }
+        // 返答ごとの AI（見出しの名前）。Claude Code のセッション記録から読んだものは Claude
+        var speakers: [AgentEngine?] = []
+        if let f = runtime.sessionFile {
+            messages = ClaudeSessions.messages(in: f)
+            speakers = Array(repeating: .claude, count: messages.count)
+        }
         if messages.isEmpty {
-            // セッション記録がまだ無い（起動前に失敗した等）ときは自前の履歴から
+            // セッション記録が無い（ChatGPT・Gemini、起動前に失敗した等）ときは自前の履歴から
             for t in runtime.turns {
+                let who = t.engine.flatMap(AgentEngine.init(rawValue:))
                 messages.append(SessionMessage(role: .user, text: t.prompt, date: t.startedAt))
-                if let r = t.result, !r.isEmpty, t.state != .error { messages.append(SessionMessage(role: .assistant, text: r, date: t.endedAt)) }
+                speakers.append(who)
+                if let r = t.result, !r.isEmpty, t.state != .error {
+                    messages.append(SessionMessage(role: .assistant, text: r, date: t.endedAt))
+                    speakers.append(who)
+                }
             }
         }
-        var lastRole: SessionMessage.Role?
-        for m in messages {
+        for (index, m) in messages.enumerated() {
             switch m.role {
             case .user:
                 var text = m.text
@@ -614,9 +671,11 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                     text = String(text[..<r.lowerBound])
                     notes.append(block.contains(".png") ? L("📷 画面を添付しました") : L("📷 画面の添付に失敗しました"))
                 }
+                var attachedMedia: [ChatMedia.Ref] = []
                 if let r = text.range(of: AgentChatController.attachMarker) {
-                    let names = text[r.upperBound...].split(separator: "\n").filter { $0.hasPrefix("- ") }
-                        .map { ($0.dropFirst(2) as NSString).lastPathComponent }
+                    let paths = text[r.upperBound...].split(separator: "\n").filter { $0.hasPrefix("- ") }.map { String($0.dropFirst(2)) }
+                    let names = paths.map { ($0 as NSString).lastPathComponent }
+                    attachedMedia = ChatMedia.refs(in: paths.joined(separator: "\n")).filter { $0.kind != .web }
                     text = String(text[..<r.lowerBound])
                     notes.append("📎 " + names.joined(separator: ", "))
                 }
@@ -626,17 +685,19 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                     out.append(NSAttributedString(string: n + "\n", attributes: [.font: NSFont.systemFont(ofSize: 11.5),
                                                                                     .foregroundColor: NSColor.secondaryLabelColor]))
                 }
+                appendMedia(attachedMedia + ChatMedia.refs(in: text), autoWeb: true, to: out)
             case .assistant:
-                if lastRole != .tool || true { out.append(caption("Claude", accent)) }
+                out.append(caption(((index < speakers.count ? speakers[index] : nil) ?? runtime.effectiveEngine).displayName, accent))
                 out.append(Markdown.render(m.text, size: 14))
                 out.append(NSAttributedString(string: "\n"))
+                // 返答に出てきた画像・PDF・Web ページ
+                appendMedia(ChatMedia.refs(in: m.text), autoWeb: false, to: out)
             case .tool:
                 let ps = NSMutableParagraphStyle(); ps.paragraphSpacingBefore = 4
                 out.append(NSAttributedString(string: "⚙︎ " + m.text + "\n",
                                               attributes: [.font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular),
                                                            .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: ps]))
             }
-            lastRole = m.role
         }
         if let last = runtime.lastTurn, last.state == .error || last.state == .cancelled, let e = last.error, !e.isEmpty {
             out.append(caption(last.state == .error ? L("エラー") : L("キャンセル済み"), .systemRed))
@@ -644,7 +705,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                                                                            .foregroundColor: NSColor.systemRed]))
         }
         if runtime.isRunning {
-            out.append(caption("Claude", accent))
+            out.append(caption((runtime.runningEngine ?? runtime.effectiveEngine).displayName, accent))
             out.append(NSAttributedString(string: "… " + (runtime.activity ?? L("作業中")) + "\n",
                                           attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: accent]))
         }
@@ -812,15 +873,58 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         window.makeFirstResponder(input)
     }
 
+    /// その AI で選べるモデル（先頭のほうに「既定」。Claude は「自動」も）
+    private func modelChoices(_ e: AgentEngine) -> [(label: String, value: String?)] {
+        guard e != .claude else { return AgentChatController.models }
+        let list = EngineModelCatalog.shared.models(e)
+        var out: [(label: String, value: String?)] = [(L("既定（%@）", e.cliTitle), nil)]
+        out += list.map { ($0.name, Optional($0.id)) }
+        // 一覧にない（古い・まだ読めていない）モデルを選んでいたら、それも出す
+        if let cur = runtime.model, !list.contains(where: { $0.id == cur }) { out.append((cur, cur)) }
+        return out
+    }
+
+    /// その AI・モデルで選べる考える強さ（Codex はカタログのそのモデルの強さ、Gemini は無し）
+    private func effortChoices(_ e: AgentEngine, model: String?) -> [(label: String, value: String?)] {
+        switch e {
+        case .claude:
+            return AgentChatController.efforts
+        case .codex:
+            let cat = EngineModelCatalog.shared
+            let levels = model.flatMap { cat.model(.codex, id: $0)?.efforts }
+                ?? cat.models(.codex).reduce(into: [String]()) { acc, m in for x in m.efforts where !acc.contains(x) { acc.append(x) } }
+            return [(L("強さ: 既定"), nil)] + levels.map { ($0, Optional($0)) }
+        case .gemini:
+            return [(L("強さ: 既定"), nil)]
+        }
+    }
+
+    static func fill(_ p: NSPopUpButton, _ titles: [String]) {
+        p.removeAllItems()
+        p.addItems(withTitles: titles)
+        // 同じ名前があると addItems はまとめてしまうので、数が合わなければ 1 つずつ足す
+        if p.numberOfItems != titles.count {
+            p.removeAllItems()
+            for t in titles { p.menu?.addItem(NSMenuItem(title: t, action: nil, keyEquivalent: "")) }
+        }
+    }
+
     @objc private func modelChanged() {
-        runtime.model = AgentChatController.models[max(0, modelPopup.indexOfSelectedItem)].value
+        let i = max(0, modelPopup.indexOfSelectedItem)
+        runtime.model = i < shownModels.count ? shownModels[i].value : nil
+        // 強さはモデルによって選べるものが違うので、合わなければ既定に戻す
+        if runtime.effectiveEngine == .codex, let e = runtime.effort,
+           let m = runtime.model, let levels = EngineModelCatalog.shared.model(.codex, id: m)?.efforts, !levels.contains(e) {
+            runtime.effort = nil
+        }
         if runtime.model == ModelRouter.auto { manager?.refreshUsageForAutoModel() }
         refresh()
         window.makeFirstResponder(input)
     }
 
     @objc private func effortChanged() {
-        runtime.effort = AgentChatController.efforts[max(0, effortPopup.indexOfSelectedItem)].value
+        let i = max(0, effortPopup.indexOfSelectedItem)
+        runtime.effort = i < shownEfforts.count ? shownEfforts[i].value : nil
         window.makeFirstResponder(input)
     }
 
@@ -858,6 +962,15 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         refresh()
     }
     @objc private func retryTask() { runtime.retry() }
+
+    /// Mac の音声入力を、この入力欄で始める（AI ではなく macOS の機能。話した言葉がそのまま入力欄に入る）
+    @objc private func startDictation() {
+        guard input.isEditable else { NSSound.beep(); return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(input)
+        NSApp.sendAction(Selector(("startDictation:")), to: nil, from: self)
+    }
 
     @objc private func orgThumbsUp() { orgReact(.thumbsUp) }
     @objc private func orgThumbsDown() { orgReact(.thumbsDown) }
@@ -923,6 +1036,14 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     // MARK: 入力欄の高さ（1〜7 行で伸びる）
 
     func textDidChange(_ notification: Notification) { relayoutInput() }
+
+    /// 会話の中のリンク：「表紙を見る」なら読みに行く。ほかは標準どおり（ブラウザ・既定のアプリで開く）
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard textView === transcript, let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:)),
+              url.scheme == ChatMediaCache.previewScheme else { return false }
+        ChatMediaCache.shared.allow(link: url)
+        return true
+    }
 
     private func relayoutInput() {
         guard let tc = input.textContainer, let lm = input.layoutManager else { return }

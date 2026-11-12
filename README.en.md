@@ -45,10 +45,10 @@
 - macOS 14 or later. It's a universal build that runs on both Apple silicon and Intel (tested on macOS 26 on Apple silicon). Transcribing system audio requires macOS 26 or later
 - At least one of these AI CLIs ([AI engines and accounts](#ai-engines-and-accounts)). Claude Code supports the most features
   - [Claude Code](https://code.claude.com/docs/en/setup) (Claude account). Jellyfish AI automatically picks the newest `claude` from your PATH, `~/.local/bin`, Homebrew, and the copy bundled with the VS Code / Cursor extension
-  - [Codex CLI](https://github.com/openai/codex) (ChatGPT account) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google account)
+  - [Codex CLI](https://github.com/openai/codex) (ChatGPT account) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google account). The Codex CLI bundled with the ChatGPT desktop app is found automatically too, and works as is if you're signed in to ChatGPT in the app
 
 1. **Install the CLI of the AI you want to use**
-   Install Claude Code, Codex CLI or Gemini CLI by following its official guide. If you use the Claude Code extension for VS Code / Cursor, the `claude` bundled with the extension works as is. You can sign in from the “Accounts & AI” screen that appears the first time you launch the app (AIs you install later can be signed in from the menu bar jellyfish › 🔑 Accounts & AI)
+   Install Claude Code, Codex CLI or Gemini CLI by following its official guide. If you use the Claude Code extension for VS Code / Cursor, the `claude` bundled with the extension works as is. You can sign in from the “Accounts & AI” screen that appears the first time you launch the app (AIs you install later can be signed in from the menu bar jellyfish › 🔑 Accounts & AI). An AI that isn't installed yet can be installed from its official package and signed in, right from that screen or the menu (“Install & sign in…”), once you allow it
 2. **Download**
    Download `JellyfishAI-<version>.dmg` from [the latest release](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) (there's also a `.zip` with the same contents)
 3. **Move it to the Applications folder**
@@ -94,10 +94,10 @@ Click the jellyfish in the menu bar, and the top of the menu shows **your Claude
 
 - The email and plan of the signed-in account (e.g. Claude Max 20x)
 - Bars and percentages for this week's usage: the **all models** and **Fable** limits, each with its reset date and time (orange at 75%, red at 90%)
-- **📊 Usage (per AI, last 7 days)**: calls and tokens per model and per account for Claude, ChatGPT (Codex) and Gemini (what Jellyfish ran, using the numbers the CLIs report; counted on this Mac only). For Claude, this week's limit % too
+- **📊 Usage (per AI, last 7 days)**: calls and tokens per model and per account for Claude, ChatGPT (Codex) and Gemini (what Jellyfish ran, using the numbers the CLIs report; counted on this Mac only). For Claude, this week's limit %, and for ChatGPT, the 5-hour and weekly limit % too
 - When you open the menu, it re-reads them from Claude Code if at least a minute has passed since the last read (`claude auth status` and `claude -p /usage`; `/usage` is a built-in Claude Code command, so no model is called and no tokens are used). It never fetches them periodically in the background
 
-Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and the list of agents, plus settings for Appearance, Size, Screen awareness, 🔑 Accounts & AI, 🧠 Model (default), Execution policy, PC control, Team, 🧬 Autonomous organization, External tools (MCP), Open at login, and 🌐 Language. “About Jellyfish AI” and “Check for updates…” are here too.
+Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and the list of agents, plus settings for Appearance, Size, Screen awareness, 🔑 Accounts & AI, 🧠 Model (default), Execution policy, PC control, Team, 🧬 Autonomous organization, External tools (MCP), web page previews in chats, Open at login, and 🌐 Language. “About Jellyfish AI” and “Check for updates…” are here too.
 
 ## What it can do
 
@@ -105,8 +105,8 @@ Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and
 - **Its movement shows its state**: thinking, working (running a tool), done, error, and canceled are shown in step with Claude Code's actual events. Once done, it stops moving and uses almost no CPU
 - **Parallel and independent**: each jellyfish has its own session, working folder, history, and process. If one fails, the others are unaffected
 - **Tap for results and follow-ups**: read the result in the chat window and keep giving instructions in the same session. The window is a normal Mac window (minimize, full screen, resize freely)
-- **Pick the model**: at the top of the chat, choose per jellyfish between **🤖 Automatic** (per request: Haiku for short, simple requests, Sonnet for typical ones, Opus for heavy ones; the heaviest requests use Fable only while this week's Fable usage is below 75%) and **Fable / Opus / Sonnet / Haiku**. In Automatic, the status line shows the chosen model and why. Thinking effort (`--effort`) is on the same row. Jellyfish that don't pick a model follow **🧠 Model (default)** in the menu bar
-- **See your usage**: the menu bar jellyfish shows your account and this week's usage (all models, Fable) as bars
+- **Pick the model**: at the top of the chat, choose per jellyfish between **🤖 Automatic** (per request: Haiku for short, simple requests, Sonnet for typical ones, Opus for heavy ones; the heaviest requests use Fable only while this week's Fable usage is below 75%) and **Fable / Opus / Sonnet / Haiku**. In Automatic, the status line shows the chosen model and why. Thinking effort (`--effort`) is on the same row. For **ChatGPT (Codex) and Gemini jellyfish**, choose from the model list each CLI provides (`codex debug models`, `gemini models`; names are never guessed), and for ChatGPT also the thinking efforts that model supports (low to ultra, etc.). Jellyfish that don't pick a model follow **🧠 Model (default)** in the menu bar (with a default per AI)
+- **See your usage**: the menu bar jellyfish shows your Claude account and this week's usage (all models, Fable) as bars. If you're signed in to ChatGPT (Codex), its plan (e.g. ChatGPT Plus) and **5-hour and weekly limit %** appear as bars too (read from the value Codex CLI wrote in its own records the last time it was used; no model is called). If you're signed in to Gemini, the number of runs from Jellyfish (today, 7 days)
 - **Works while looking at your screen**: when you clearly point at the screen, as in “this screen”, “the error that's showing”, or “screenshot”, it captures the screen at send time and passes it along (Jellyfish's own windows are not captured, and an ordinary instruction like “show me the list” doesn't trigger a capture; you can also switch to “Attach every time” / “Don't attach” in the chat). Images are scaled down to at most 1568px on the long side before sending, so each one costs about 1,800 tokens (about 40% of what it would at 2560px)
 - **External tools only when named**: the MCP servers configured in Claude Code (Figma, Blender, etc.) and claude.ai connectors are loaded only when your instruction mentions them by name. Not loading them the rest of the time saves about 4,800 tokens per call and makes startup faster
 - **Agents divide the work**: bring a jellyfish close to another one, and the other lights up with “Release to link”; release it, and they're connected by a line and become the same team. Agents can ask teammates to do work or create new teammates to share it, and requests (in the requester's color) and results (in the assignee's color) travel back and forth along the line as light. ⇧-drag moves the whole team; holding ⌥ when you release, or the ✂︎ on the line, cuts the link
@@ -115,6 +115,8 @@ Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and
 - **Give them names**: right-click “Rename…” or use “Name” in the chat. Agents call each other by these names. A jellyfish without a name is “Agent N” (a number), and the smallest free number is reused (numbers don't keep growing; if there are gaps, use “Renumber from 1” in the menu bar)
 - **Open files and pages**: ask “open the X document on my Desktop”, and it finds it and opens it in the Mac's default app (Preview, Finder, a browser, etc.). Ask “what does it say?” and it answers in the chat
 - **Hand over files**: drop a file on a jellyfish or the chat window to attach it (the 📎 button works too)
+- **See images, PDFs and web pages in the chat**: attached images and PDFs, and image or PDF files (paths) mentioned in the conversation, appear below the text as Quick Look thumbnails; web page URLs appear with their cover image and title (the Mac's LinkPresentation, the same link previews as Messages). Click to open in Preview or your browser. Web pages in an agent's reply are loaded only when you click “Show cover” (so that if instructions hidden in a page it read make the agent write a URL containing secrets, nothing is sent on its own). Turn off web previews with “Show web page previews in chats” in the menu bar (images and PDFs are shown only on this Mac)
+- **Speak to type (Dictation)**: **🎙** in the chat or Edit › **Start Dictation** starts the Mac's Dictation in the input field, and what you say becomes text. It's the macOS feature, not AI transcription (System Settings › Keyboard › Dictation; the shortcut set there works too)
 - **Kept in Claude Code's records**: conversations are saved as Claude Code's own sessions (`~/.claude/projects`), so you can continue them from VS Code or Terminal. With “Open past session” in the menu bar, you can also bring up sessions created in VS Code or Terminal as jellyfish. Hold ⌥ while choosing one to archive it (this only removes it from the list and doesn't delete the record; you can bring it back from “Archived”)
 
 <p align="center">
@@ -259,19 +261,25 @@ You can choose which AI runs your agents: **Claude (Claude Code), ChatGPT (Codex
 | AI | CLI | Account to sign in with | Rules when running without asking | Features |
 |---|---|---|---|---|
 | Claude | Claude Code | Claude (Pro, Max, etc.) | Auto mode (Claude Code's safety checks stop dangerous operations) | All |
-| ChatGPT | Codex CLI | ChatGPT (Plus, Pro, etc.) | Sandbox (can write only inside the working folder, no network) | Chat, work, continue, join teams as a teammate |
-| Gemini | Gemini CLI | Google account | auto_edit (auto-approves only edits inside the working folder, doesn't run commands) | Chat, work, continue, join teams as a teammate |
+| ChatGPT | Codex CLI | ChatGPT (Plus, Pro, etc.) | Sandbox (can write only inside the working folder, no network) | Chat, work, continue, team (create and ask teammates) |
+| Gemini | Gemini CLI | Google account | auto_edit (auto-approves only edits inside the working folder, doesn't run commands) | Chat, work, continue, team (create and ask teammates) |
 
-- **The first time you launch the app**, the “Accounts & AI” screen appears so you can sign in to each AI. For AIs that aren't installed, “How to install…” shows the official install command (Jellyfish doesn't install anything for you)
+- **The first time you launch the app**, the “Accounts & AI” screen appears so you can sign in to each AI
+- **For an AI that isn't installed**, “Install & sign in…” on that screen or in the menu shows the exact command and asks for permission. If you allow it, Terminal runs that command to install the official package and then starts that CLI's sign-in, so all that's left is signing in in your browser
+  - Claude: Anthropic's official installer (`curl -fsSL https://claude.ai/install.sh | bash`, installs to `~/.local/bin`)
+  - ChatGPT (Codex): `npm install -g @openai/codex`; if there's no npm or npm's global folder isn't writable, `brew install --cask codex`
+  - Gemini: `npm install -g @google/gemini-cli`; likewise, otherwise `brew install gemini-cli`
+  - No administrator password (sudo) is used. If there's neither npm nor Homebrew, the official guide opens (installing the ChatGPT desktop app also gives you its bundled Codex CLI)
 - **Later**, add accounts, sign in again with another account, or change the AI you use from the menu bar jellyfish › **🔑 Accounts & AI**. The sign-in status (✓ / ⚠️) is shown there too
 - **You can choose the AI per jellyfish**: “AI” at the top of the chat. Changing it starts a new conversation. Jellyfish that don't pick one follow “AI to use” in the menu. Teammates run on the same AI as the jellyfish that created them
 - Signing in opens each CLI's official sign-in (`claude auth login --claudeai`, `codex login`, Gemini CLI's “Sign in with Google”) in Terminal, and you sign in yourself in the browser. **Jellyfish never receives or stores passwords, tokens or API keys**
-- Leading a team (asking and creating teammates), PC control, autonomous organization, external tools (MCP) and the “Automatic” model are Claude only. Codex and Gemini jellyfish can join a team as teammates ([Split work by each AI's strengths](#split-work-by-each-ais-strengths)). Codex and Gemini use their CLI's default model
+- **Team (creating and asking teammates) and autonomous organization work on jellyfish of every AI**. ChatGPT and Gemini jellyfish also grow their team with Jellyfish's team tools: new jellyfish appear next to them, get linked, and requests and results travel along the lines as light ([Split work by each AI's strengths](#split-work-by-each-ais-strengths)). PC control, external tools (MCP) and the “Automatic” model are Claude only. You can pick models for Codex and Gemini too (see the model picker below)
+- **Screen attachments, file attachments, 🎧 system audio transcription and 🎙 dictation work on jellyfish of every AI**. Images are attached to ChatGPT (Codex) with `--image` (Codex can read files but can't see images otherwise), and for Gemini the folders holding attachments inside the jellyfish's data folder (screenshots, transcripts) are added to its workspace (Gemini can't read files outside its folder; files you drop yourself are safest inside the working folder)
 - Gemini checks whether it trusts a folder and won't run in an untrusted one. Open it with “Open Gemini in this folder” in the chat and trust the folder only if it's one you trust (Jellyfish never skips this check)
 
 ### Split work by each AI's strengths
 
-A team lead (Claude) can choose the AI for each teammate and split the work by what each one is good at. The lead's instructions list the AIs you're currently signed in to and can use, along with their strengths and limits, which follow from how Jellyfish runs each one.
+A team lead (on any AI) can choose the AI for each teammate and split the work by what each one is good at. The lead's instructions list the AIs you're currently signed in to and can use, along with their strengths and limits, which follow from how Jellyfish runs each one.
 
 | AI | Good roles | Can't |
 |---|---|---|
@@ -279,7 +287,8 @@ A team lead (Claude) can choose the AI for each teammate and split the work by w
 | ChatGPT (Codex) | Implementing and fixing code, running tests and builds | Network access (web search, package downloads), writing outside the working folder |
 | Gemini | Research with Google Search and web pages, summarizing and comparing lots of documents or code, writing | Running shell commands |
 
-- Ask something like “split this: research with Gemini, implementation with Codex, summary and review with Claude”, and the lead creates teammates with an AI each through `engine` in `create_teammate` / `form_team` (autonomous organization mode works the same way). You can also link jellyfish whose AI you picked yourself with “AI” at the top of the chat
+- Ask something like “split this: research with Gemini, implementation with Codex, summary and review with Claude”, and the lead creates teammates with an AI, model and thinking effort each through `engine` (and `model`, `effort`) in `create_teammate` / `form_team` (autonomous organization mode works the same way). **Jellyfish on any AI can lead**: a Claude jellyfish can bring in ChatGPT teammates and a ChatGPT jellyfish can bring in Claude teammates to split the work or build together. Jellyfish whose AI you picked yourself with “AI” at the top of the chat (say, Claude and ChatGPT) ask each other for work and send back results once you link them by bringing them close
+- Each reply's heading is the name of the AI that wrote it (Claude, ChatGPT (Codex), Gemini). Thinking effort can be chosen for Claude (low to max) and ChatGPT (what the model supports). Gemini CLI has no option to set thinking effort, so it's left to Gemini CLI's settings
 - If the lead asks for an AI that can't be used (not installed, not signed in, or still on a pay-as-you-go API key), it gets the reason and the list of AIs it can use, and asks again with another one
 - **Passing data**: for each request to the lead, a **handoff folder** shared by the team is created (under `handoff/` in the data folder, readable only by you), and teammates on every AI are allowed to read and write it (Claude with `--add-dir`, Codex as a writable folder of its sandbox, Gemini with `--include-directories`). Large data and intermediate results go there as files, and requests and results carry their paths. Teammates ordered with `after` also get the earlier members' results in their request
 - Final deliverables are saved where you asked (such as the working folder). Handoff folders are removed at the end of the turn if empty, otherwise after 7 days
@@ -296,7 +305,9 @@ A team lead (Claude) can choose the AI for each teammate and split the work by w
 ## Updates
 
 - Menu bar jellyfish › **Check for updates…** checks GitHub for a newer version (only when you choose it; it never connects automatically)
-- If there's a new version, download the .dmg and replace the app by dragging it to the Applications folder, the same as in [Install](#download-and-install) (settings, jellyfish, and conversations are kept)
+- If there's a new version, **Update** downloads it (.zip) from the GitHub release, checks the checksum in `SHA256SUMS.txt`, the contents (that it's that version of Jellyfish AI) and the code signature, then replaces the app and reopens it (settings, jellyfish, and conversations are kept). Nothing happens unless you press it
+  - It won't replace the app while jellyfish are working. If the app was opened from a location that can't be changed (such as inside the .dmg), or macOS stops the replacement (System Settings › Privacy & Security › App Management), it points you to the download page
+- To replace it by hand, download the .dmg and drag it to the Applications folder, the same as in [Install](#download-and-install)
 - If you use PC control or screen attachment after replacing it, grant the Screen Recording and Accessibility permissions again ([Good to know](#good-to-know))
 
 ### Stop being asked for permissions after every update
@@ -339,7 +350,7 @@ scripts/install.sh          # build, install to the Applications folder, and lau
 - Agents run in Claude Code's official **Auto Mode** (`--permission-mode auto`). They go ahead with file operations and commands without asking, and Claude Code's safety checks stop things like exfiltrating credentials, unintended sending to outside services, and irreversible operations. Options are passed only after checking at launch that they exist in `claude --help`
 - You can check the current scope of permissions and the location and version of the `claude` in use under “Execution policy” in the menu bar
 - It doesn't change macOS permission settings. Only when you use screen awareness, allow Jellyfish AI under “System Settings › Privacy & Security › Screen Recording”
-- Jellyfish AI's own network access is limited to reading GitHub's public API once when you choose “Check for updates…” (no automatic checks, no usage reporting). Instructions and attachments are sent to Anthropic through Claude Code. The usage in the menu is read from Anthropic by Claude Code when you open the menu
+- Jellyfish AI's own network access is limited to reading GitHub's public API once when you choose “Check for updates…”, fetching that release's files from GitHub when you press “Update”, and web page previews in chats (loading pages mentioned in the conversation; can be turned off in the menu) (no automatic checks, no usage reporting). Installing an AI that isn't installed runs the command you allowed in Terminal. Instructions and attachments are sent to Anthropic through Claude Code. The usage in the menu is read from Anthropic by Claude Code when you open the menu
 - Modes that turn off the safety checks, such as `bypassPermissions`, are not used even if they're written in `settings.json`
 - PC control is used only when you ask directly in that agent's chat (never for requests from teammates)
 - External control through `jellyfish://` URLs accepts only harmless actions such as toggling the display (it doesn't accept sending instructions, granting PC control, and so on; rapid-fire calls are throttled, and it doesn't steal keyboard focus)

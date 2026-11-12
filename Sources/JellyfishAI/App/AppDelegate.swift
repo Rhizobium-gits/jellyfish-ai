@@ -107,6 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item(L("コピー"), #selector(NSText.copy(_:)), "c"),
             item(L("ペースト"), #selector(NSText.paste(_:)), "v"),
             item(L("すべてを選択"), #selector(NSText.selectAll(_:)), "a"),
+            .separator(),
+            // Mac の音声入力（入力欄で話すと文字になる）
+            item(L("音声入力を開始"), Selector(("startDictation:")), ""),
         ])
         sub(L("ウインドウ"), [
             item(L("しまう"), #selector(NSWindow.performMiniaturize(_:)), "m"),

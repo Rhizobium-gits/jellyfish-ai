@@ -29,6 +29,13 @@ struct AgentRunOptions {
     /// 作業フォルダのほかに読み書きを許すフォルダ（チームの受け渡し用のフォルダ）。
     /// Claude は --add-dir、Codex はサンドボックスの writable_roots、Gemini は --include-directories
     var addDirs: [URL] = []
+    /// 指示に添える画像（Codex の --image。Codex はファイルを読めても画像は見られないので、画面の画像・落とした画像を添える）
+    var images: [URL] = []
+    /// Codex・Gemini に渡す Jellyfish の MCP（チームのツール）：起動するコマンドと引数、出してよいツールの名前
+    var mcpBridge: (command: String, args: [String])? = nil
+    var mcpTools: [String] = []
+    /// Codex の developer_instructions に入れるチームの案内（Gemini は MCP の instructions で渡す）
+    var instructions: String? = nil
 }
 
 /// 実行中の 1 ターン

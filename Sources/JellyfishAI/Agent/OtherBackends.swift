@@ -205,21 +205,73 @@ final class CodexBackend: AgentBackend {
     /// 引数（テストあり）。新しい会話は `exec`、続きは `exec resume <id>`。プロンプトは「--」のあと。
     /// 受け渡し用のフォルダは、サンドボックスで書けるフォルダ（sandbox_workspace_write.writable_roots）に足す
     /// （exec resume には --add-dir が無いので、どちらも設定の上書きで渡す）
-    static func arguments(prompt: String, sessionID: String?, model: String?, addDirs: [URL] = []) -> [String] {
+    /// TOML の文字列（-c の値）。\ と " と改行などをエスケープする
+    static func toml(_ s: String) -> String {
+        var out = "\""
+        for u in s.unicodeScalars {
+            switch u {
+            case "\\": out += "\\\\"
+            case "\"": out += "\\\""
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default:
+                if u.value < 0x20 || u.value == 0x7F { out += String(format: "\\u%04X", u.value) } else { out.unicodeScalars.append(u) }
+            }
+        }
+        return out + "\""
+    }
+
+    static func tomlArray(_ a: [String]) -> String { "[" + a.map(toml).joined(separator: ",") + "]" }
+
+    static func arguments(prompt: String, sessionID: String?, model: String?, effort: String? = nil, addDirs: [URL] = [],
+                          mcp: (command: String, args: [String])? = nil, tools: [String] = [], instructions: String? = nil,
+                          images: [URL] = []) -> [String] {
         var a = ["exec"]
         if sessionID != nil { a.append("resume") }
         a += ["--json", "--skip-git-repo-check",
               "--config", #"sandbox_mode="workspace-write""#,
               "--config", #"approval_policy="never""#]
         if !addDirs.isEmpty {
-            let roots = addDirs.map { "\"" + $0.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-            a += ["--config", "sandbox_workspace_write.writable_roots=[" + roots.joined(separator: ",") + "]"]
+            a += ["--config", "sandbox_workspace_write.writable_roots=" + tomlArray(addDirs.map(\.path))]
         }
+        // Jellyfish のチームのツール（MCP）。この実行だけに足し、出すのはチームのツールだけ（enabled_tools）、
+        // 承認はこのサーバーのツールだけ「approve」（確認なし。Claude の --allowedTools と同じ扱い）。ほかの MCP サーバーの設定は変えない
+        if let mcp, !tools.isEmpty {
+            a += ["--config", "mcp_servers.jellyfish.command=" + toml(mcp.command),
+                  "--config", "mcp_servers.jellyfish.args=" + tomlArray(mcp.args),
+                  "--config", "mcp_servers.jellyfish.enabled_tools=" + tomlArray(tools),
+                  "--config", #"mcp_servers.jellyfish.default_tools_approval_mode="approve""#,
+                  // wait_for_tasks は仲間の作業が終わるまで待つ（最大 1800 秒）
+                  "--config", "mcp_servers.jellyfish.tool_timeout_sec=2400",
+                  "--config", "mcp_servers.jellyfish.startup_timeout_sec=20"]
+        }
+        if let ins = instructions, !ins.isEmpty { a += ["--config", "developer_instructions=" + toml(ins)] }
         if let m = model, !m.isEmpty { a += ["--model", m] }
+        // 考える強さ（カタログの supported_reasoning_levels にある名前だけ。英小文字以外は渡さない）
+        if let e = effort, !e.isEmpty, e.allSatisfy({ $0.isLetter && $0.isLowercase && $0.isASCII }) {
+            a += ["--config", "model_reasoning_effort=\"\(e)\""]
+        }
+        // 画像（exec・exec resume の -i / --image。この Mac の Codex の --help で確かめたもの）
+        for i in images { a += ["--image", i.path] }
         a.append("--")
         if let s = sessionID { a.append(s) }
         a.append(prompt)
         return a
+    }
+
+    /// この Codex の exec・exec resume が --image を受け付けるか（--help で確かめ、場所ごとに覚える）
+    private static var imageSupport: [String: Bool] = [:]
+    private static let imageLock = NSLock()
+    static func supportsImages(_ url: URL) -> Bool {
+        imageLock.lock()
+        if let v = imageSupport[url.path] { imageLock.unlock(); return v }
+        imageLock.unlock()
+        let exec = CLILocator.run(url, ["exec", "--help"], timeout: 15) ?? ""
+        let resume = CLILocator.run(url, ["exec", "resume", "--help"], timeout: 15) ?? ""
+        let ok = exec.contains("--image") && resume.contains("--image")
+        imageLock.lock(); imageSupport[url.path] = ok; imageLock.unlock()
+        return ok
     }
 
     func run(prompt: String, sessionID: String, resume: Bool, cwd: URL, logDir: URL, options: AgentRunOptions,
@@ -227,7 +279,9 @@ final class CodexBackend: AgentBackend {
         guard !resume || UUID(uuidString: sessionID) != nil else { throw POSIXError(.EINVAL) }
         let m = options.model ?? model
         let args = CodexBackend.arguments(prompt: prompt, sessionID: resume ? sessionID : nil, model: m == ModelRouter.auto ? nil : m,
-                                          addDirs: options.addDirs)
+                                          effort: options.effort, addDirs: options.addDirs,
+                                          mcp: options.mcpBridge, tools: options.mcpTools, instructions: options.instructions,
+                                          images: CodexBackend.supportsImages(install.url) ? options.images : [])
         return try CLIProcess.start(executable: install.url, args: args, cwd: cwd, env: ShellEnvironment.shared.agentEnvironment(),
                                     logDir: logDir, parser: CodexEventParser(onEvent: onEvent), onExit: onExit)
     }
@@ -299,8 +353,10 @@ final class GeminiBackend: AgentBackend {
 
     /// 引数（テストあり）。会話の ID は Jellyfish が決めて --session-id で渡し、続きは --resume <id>。
     /// プロンプトは --prompt=… の形で渡す（「-」で始まる指示がオプションと間違われない）
-    static func arguments(prompt: String, sessionID: String, resume: Bool, model: String?, addDirs: [URL] = []) -> [String] {
+    static func arguments(prompt: String, sessionID: String, resume: Bool, model: String?, addDirs: [URL] = [], policy: URL? = nil) -> [String] {
         var a = ["--output-format", "stream-json", "--approval-mode", "auto_edit"]
+        // Jellyfish のチームのツール（MCP サーバー jellyfish）だけを確認なしで許す方針（ほかのツールの扱いは変えない）
+        if let policy { a += ["--policy", policy.path] }
         // 受け渡し用のフォルダもワークスペースに入れる（その中の編集も auto_edit で通る）
         for d in addDirs { a += ["--include-directories", d.path] }
         a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
@@ -313,9 +369,51 @@ final class GeminiBackend: AgentBackend {
              onEvent: @escaping (AgentEvent) -> Void, onExit: @escaping (Int32, String) -> Void) throws -> AgentHandle {
         guard UUID(uuidString: sessionID) != nil else { throw POSIXError(.EINVAL) }
         let m = options.model ?? model
-        let args = GeminiBackend.arguments(prompt: prompt, sessionID: sessionID, resume: resume, model: m == ModelRouter.auto ? nil : m,
-                                           addDirs: options.addDirs)
-        return try CLIProcess.start(executable: install.url, args: args, cwd: cwd, env: ShellEnvironment.shared.agentEnvironment(),
+        var env = ShellEnvironment.shared.agentEnvironment()
+        var policy: URL?
+        // チームのツール：いちばん優先度の低い「システムの既定」の設定ファイルに jellyfish の MCP サーバーだけを足し（もとの既定とは合わせる。
+        // ユーザーの設定・管理者の設定のほうが優先される）、そのサーバーのツールだけを許す方針を渡す
+        if let mcp = options.mcpBridge, !options.mcpTools.isEmpty {
+            try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+            let defaultsURL = logDir.appendingPathComponent("gemini-system-defaults.json")
+            let base = GeminiBackend.systemDefaultsPath(env: env).flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
+            if let d = GeminiBackend.systemDefaults(existing: base, command: mcp.command, args: mcp.args, tools: options.mcpTools),
+               (try? d.write(to: defaultsURL, options: .atomic)) != nil {
+                env["GEMINI_CLI_SYSTEM_DEFAULTS_PATH"] = defaultsURL.path
+                let p = logDir.appendingPathComponent("gemini-jellyfish-policy.toml")
+                if (try? GeminiBackend.policyTOML.write(to: p, atomically: true, encoding: .utf8)) != nil { policy = p }
+            }
+        }
+        let args = GeminiBackend.arguments(prompt: prompt, sessionID: sessionID, resume: resume, model: m, addDirs: options.addDirs, policy: policy)
+        return try CLIProcess.start(executable: install.url, args: args, cwd: cwd, env: env,
                                     logDir: logDir, parser: GeminiEventParser(onEvent: onEvent), onExit: onExit)
+    }
+
+    /// Jellyfish の MCP サーバーのツールだけを許す（それ以外は Gemini の既定・ユーザー・管理者の方針のまま）
+    static let policyTOML = """
+    # Jellyfish AI が作る方針（Gemini CLI の --policy）。Jellyfish のチームのツールだけを確認なしで許す
+    [[rule]]
+    mcpName = "jellyfish"
+    toolName = "*"
+    decision = "allow"
+    priority = 100
+
+    """
+
+    /// もとの「システムの既定」の場所（環境変数で指定されていればそれ、無ければ macOS の既定の場所）
+    static func systemDefaultsPath(env: [String: String]) -> String? {
+        let p = env["GEMINI_CLI_SYSTEM_DEFAULTS_PATH"] ?? "/Library/Application Support/GeminiCli/system-defaults.json"
+        return FileManager.default.fileExists(atPath: p) ? p : nil
+    }
+
+    /// もとの既定（あれば）に、jellyfish の MCP サーバーを足したもの（テストあり）
+    static func systemDefaults(existing: Data?, command: String, args: [String], tools: [String]) -> Data? {
+        var o = existing.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        var servers = o["mcpServers"] as? [String: Any] ?? [:]
+        servers["jellyfish"] = ["command": command, "args": args, "includeTools": tools,
+                                // wait_for_tasks は最大 1800 秒待つ（ミリ秒）
+                                "timeout": 2_400_000, "description": "Jellyfish AI team tools"] as [String: Any]
+        o["mcpServers"] = servers
+        return try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys])
     }
 }

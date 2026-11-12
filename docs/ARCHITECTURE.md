@@ -99,10 +99,21 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 - 実行の前に `JellyManager.preflight`：`EngineAuth`（10 分まで覚える）で、サブスクリプションでログインしているときだけ動かす。API キー（従量課金）なら、`allowAPIBilling` がオンのときだけ
 - 子プロセスの環境変数は `ShellEnvironment.agentEnvironment()`（`BillingGuard` が API キーの環境変数を外す）
 - ログイン：`EngineLogin` がデータフォルダに `login-<engine>.command` を書いてターミナルで開く（環境変数を外してから公式のログインを実行）。初めての起動と「🔑 アカウントと AI」から
+- 入っていないとき：`JellyManager.offerInstall` → `EngineInstall.plan`（Claude は公式のインストーラ、Codex・Gemini は npm（`npm prefix -g` に書けるときだけ）→ Homebrew の順。どちらも無ければ nil で公式の案内）→ 許可の確認にコマンドをそのまま出す → `install-<engine>.command`（入れる → `command -v` で見つける → `EngineLogin.loginLines` でログイン）。`watchInstall` が 5 秒ごとに 15 分まで `relocate` して確かめる
 
 - **AI ごとの分業**：`create_teammate` / `form_team` の `engine` で仲間の AI を選ぶ（`JellyManager.spawnTeammate(engine:)`）。`TeamCoordinator.engineRoster()` が、使える AI（`EngineAuth` でサブスクリプションのログイン）と `AgentEngine.teamStrengths` をチームの system prompt と `list_team` に出す
 - **受け渡し用のフォルダ**：Claude のリーダーのユーザーのターンごとに `handoff/<日時>-agent<番号>-<4 文字>`（700）を作り（`leadHandoff`）、そのターンの依頼（`TeamTask.handoff`）に引き継ぐ。`AgentRuntime.extraDirs` → `AgentRunOptions.addDirs` で、Claude `--add-dir`・Codex `--config sandbox_workspace_write.writable_roots=[…]`（resume に --add-dir が無いため）・Gemini `--include-directories`。空なら turnEnded で消し、DataJanitor が 7 日で片付ける
 - **使用量**：`AgentEvent.usage(model:input:output:cached:)` を各パーサが出す（Claude は result の modelUsage、Codex は turn.completed の usage、Gemini は result の stats.models）。`UsageLedger`（usage.json、日 × AI × モデル × アカウント）
+- **ChatGPT の枠**：`CodexUsage`（Agent/EngineUsage.swift）が `$CODEX_HOME/sessions/年/月/日/rollout-*.jsonl` の終わり 1MB から最後の `token_count` の `rate_limits`（primary = 5 時間・secondary = 今週の used_percent・window_minutes・resets_at、plan_type）を読み、メニューの上の欄（`AccountMenu.engineItems`）に Claude と同じバーで出す
+- **会話を作った AI**：`AgentRuntime.sessionEngine`（meta.json）。既定の AI が変わってクラゲの AI が変わったら、submit で新しい会話にしてモデル・強さの指定を外す。`AgentTurn.engine` でターンごとの AI を覚え、チャットの見出しに使う（Claude Code のセッション記録から読んだ返答は Claude）
+- **仲間の強さ**：`TeamCoordinator.requestedEffort` / `effortList`（Claude は AgentChatController.efforts、ChatGPT はモデルの supported_reasoning_levels、Gemini は無し）
+
+## 2.6.2 チャットの画像・PDF・Web ページと音声入力（UI/ChatMedia.swift）
+
+- `ChatMedia.refs(in:)` が文から画像・PDF のパス（実在・50MB まで）と http / https の URL を拾う（URL の中のパスはファイルとして拾わない。1 メッセージ 6 件まで）。添付は `attachMarker` の下の行から
+- `ChatMediaCache`：ファイルは `QLThumbnailGenerator`（パスと更新時刻で覚える）、Web は `LPMetadataProvider`（10 秒）。できたら `onUpdate` → `JellyManager.scheduleTranscriptReload`（0.25 秒でまとめる）
+- Web を自動で読むのはユーザーのメッセージの URL だけ。エージェントの返答の URL は `jellyfish-preview:<URL>` の「表紙を見る」を出し、`textView(_:clickedOnLink:at:)` で押されたら `allow(link:)`（http / https だけ）で読みに行く。設定 `linkPreviews` で Web のプレビューを止める
+- 音声入力：🎙・編集 ›「音声入力を開始」は、入力欄を first responder にして `startDictation:` を送るだけ（macOS の音声入力）
 
 ## 2.7 表示の言語（Localization/）
 
@@ -161,6 +172,7 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 - **テスト**：`Tests/JellyfishAITests`（Swift Testing）。画面や claude を使わない判定ロジック（URL の受け付け、バージョン比較、外部 MCP の判定、設定の読み込み、画面添付の判定、プロセスの親子判定、セッションの増分読み込み）。Command Line Tools だけの環境では `scripts/test.sh` が Testing.framework の場所を渡す
 - **`jellyfish://`**：`URLRoutes.allowed` が受け付ける操作を決める。普段は表示系（`new`・`open`・`toggle`・`show`・`hide`・`arrange`・`style`・`scale`）だけ。指示の送信・PC 操作の許可・作業フォルダ・削除などは `JELLYFISH_AUTOMATION=1` で起動したときだけ（デモ録画は `scripts/demo/record.sh` が付ける）
 - **チームのソケット**：`bus.sock`（0600）。接続ごとに `LOCAL_PEERPID` で相手のプロセスを取り、hello で名乗ったエージェントの claude（`AgentRuntime.processID`）の子孫であることを `ProcessTree.isDescendant` で確かめてから受け付ける
-- **通信**：アプリ自身はメニューの「アップデートを確認…」のときだけ `api.github.com/repos/…/releases/latest` を読む。自動の確認・利用状況の送信はしない
+- **通信**：アプリ自身はメニューの「アップデートを確認…」のときだけ `api.github.com/repos/…/releases/latest` を読む。自動の確認・利用状況の送信はしない。ほかは「アップデートする」のときのリリースのファイルと、チャットの Web のプレビューだけ
+- **アップデート**（App/Updater.swift）：`AppUpdater.release(from:)` が `github.com/<repo>/releases/download/<tag>/` の `JellyfishAI-<版>.zip` と `SHA256SUMS.txt` だけを選ぶ → `UpdateSession` が取ってくる（リダイレクトは github.com・*.githubusercontent.com の https だけ）→ SHA-256 → `ditto -x -k` → `bundleProblem`（バンドル ID・版）→ `signatureProblem`（`SecStaticCodeCheckValidity` strict。いまの版が証明書の署名ならその designated requirement も）→ 作業中のクラゲがいないことを確かめ、いまの版を `update/previous.app` に退かして新しい版を置き（失敗したら戻す）、`sh` の小さなスクリプトがアプリの終了を待って新しい版を開き `update/` を消す
 - **片付け**：起動時に 7 日より古い画面の画像を消す（`DataJanitor`）。`app.log` は 2MB、`events.jsonl` は 4MB で 1 世代に入れ替える（`LogRotation`）。クラゲを消すとそのクラゲの生イベントと画像を消す
 

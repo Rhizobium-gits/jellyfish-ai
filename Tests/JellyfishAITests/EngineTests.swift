@@ -245,3 +245,101 @@ func obj(_ s: String) -> [String: Any] { try! JSONSerialization.jsonObject(with:
         #expect(box.events == ["usage claude-haiku-5-5 22596/4/22594", "finished true OK"])
     }
 }
+
+@Suite struct EngineModelTests {
+    @Test func codexCatalogListsVisibleModelsInOrder() {
+        // codex debug models の形（実際の出力から必要なところだけ）
+        let json = #"""
+        {"models":[
+          {"slug":"gpt-6-astra","display_name":"GPT-6-Astra","visibility":"list","priority":2,"description":"Frontier intelligence.","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"},{"effort":"ultra"}]},
+          {"slug":"codex-auto-review","display_name":"Codex Auto Review","visibility":"hide","priority":10,"supported_reasoning_levels":[]},
+          {"slug":"gpt-6.1-sol","display_name":"GPT-6.1-Sol","visibility":"list","priority":1,"description":"Latest workhorse.","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]}
+        ]}
+        """#
+        let m = EngineModels.parseCodex(Data(json.utf8))
+        #expect(m.map(\.id) == ["gpt-6.1-sol", "gpt-6-astra"])
+        #expect(m[0].name == "GPT-6.1-Sol" && m[0].detail == "Latest workhorse.")
+        #expect(m[1].efforts == ["low", "high", "ultra"])
+        #expect(EngineModels.parseCodex(Data("{}".utf8)).isEmpty)
+    }
+
+    @Test func geminiModelsFromCLI() {
+        // gemini models -o json の出力
+        let json = #"""
+        [{"modelId":"auto","id":"auto","name":"Auto","displayName":"Auto","description":"Let Gemini CLI decide the best model for the task"},
+         {"modelId":"gemini-2.5-pro","id":"gemini-2.5-pro","name":"gemini-2.5-pro","displayName":"gemini-2.5-pro","description":""}]
+        """#
+        let m = EngineModels.parseGemini(Data(json.utf8))
+        #expect(m.map(\.id) == ["auto", "gemini-2.5-pro"])
+        #expect(m[0].name == "Auto" && m[1].detail == nil && m[1].efforts.isEmpty)
+    }
+
+    @Test func modelAndEffortArguments() {
+        let c = CodexBackend.arguments(prompt: "p", sessionID: nil, model: "gpt-6.1-sol", effort: "high")
+        #expect(c.contains("--model") && c.contains("gpt-6.1-sol"))
+        #expect(c.contains(#"model_reasoning_effort="high""#))
+        // 英小文字以外の強さは渡さない
+        let bad = CodexBackend.arguments(prompt: "p", sessionID: nil, model: nil, effort: #"high" sandbox_mode="danger-full-access"#)
+        #expect(!bad.contains { $0.contains("model_reasoning_effort") || $0.contains("danger") })
+        // Gemini の「auto」は Gemini のモデルの id なので、そのまま渡す
+        let g = GeminiBackend.arguments(prompt: "p", sessionID: "6c1d3f1e-2b8a-4c55-9d7e-1a2b3c4d5e6f", resume: false, model: "auto")
+        #expect(g.contains("--model") && g.contains("auto"))
+    }
+
+    @Test func picksTheNewestVersion() {
+        #expect(CLILocator.versionParts("0.162.0-alpha.2") == [0, 162, 0])
+        #expect(CLILocator.versionParts("0.167.2").lexicographicallyPrecedes([0, 168]))
+        #expect(CLILocator.versionParts("0.162.0-alpha.2").lexicographicallyPrecedes(CLILocator.versionParts("0.167.2")))
+    }
+}
+
+@Suite struct TeamToolsOnOtherEnginesTests {
+    let bridge = (command: "/Applications/JellyfishAI.app/Contents/MacOS/JellyfishAI",
+                  args: ["--mcp-bridge", "/Users/x/Library/Application Support/JellyfishAI/bus.sock", "0B1E0000-0000-4000-8000-000000000001"])
+    let tools = ["list_team", "assign_task", "create_teammate", "wait_for_tasks"]
+
+    @Test func codexGetsJellyfishMCPForThisRunOnly() {
+        let a = CodexBackend.arguments(prompt: "p", sessionID: nil, model: nil, mcp: bridge, tools: tools,
+                                       instructions: "# Jellyfish チーム\n\"仲間\" に頼む\\")
+        #expect(a.contains(#"mcp_servers.jellyfish.command="/Applications/JellyfishAI.app/Contents/MacOS/JellyfishAI""#))
+        #expect(a.contains(#"mcp_servers.jellyfish.args=["--mcp-bridge","/Users/x/Library/Application Support/JellyfishAI/bus.sock","0B1E0000-0000-4000-8000-000000000001"]"#))
+        #expect(a.contains(#"mcp_servers.jellyfish.enabled_tools=["list_team","assign_task","create_teammate","wait_for_tasks"]"#))
+        // 確認なしにするのは jellyfish のサーバーのツールだけ
+        #expect(a.contains(#"mcp_servers.jellyfish.default_tools_approval_mode="approve""#))
+        #expect(!a.contains { $0.hasPrefix("approval_policy=") && !$0.contains("never") })
+        #expect(!a.contains { $0.contains("dangerously") || $0.contains("danger-full-access") })
+        // 改行・引用符・バックスラッシュは TOML の文字列としてエスケープ
+        #expect(a.contains(##"developer_instructions="# Jellyfish チーム\n\"仲間\" に頼む\\""##))
+        #expect(a.suffix(2) == ["--", "p"])
+        // チームのツールが無ければ足さない
+        #expect(!CodexBackend.arguments(prompt: "p", sessionID: nil, model: nil, mcp: bridge, tools: []).contains { $0.contains("mcp_servers") })
+    }
+
+    @Test func tomlEscapesControlCharacters() {
+        #expect(CodexBackend.toml("a\tb\u{1}") == #""a\tb\u0001""#)
+        #expect(CodexBackend.tomlArray([]) == "[]")
+    }
+
+    @Test func geminiDefaultsKeepExistingServersAndSettings() throws {
+        let existing = Data(#"{"mcpServers":{"figma":{"command":"figma-mcp"}},"ui":{"theme":"dark"}}"#.utf8)
+        let d = try #require(GeminiBackend.systemDefaults(existing: existing, command: bridge.command, args: bridge.args, tools: tools))
+        let o = try #require(try JSONSerialization.jsonObject(with: d) as? [String: Any])
+        let servers = try #require(o["mcpServers"] as? [String: Any])
+        #expect(servers["figma"] != nil)
+        let j = try #require(servers["jellyfish"] as? [String: Any])
+        #expect(j["command"] as? String == bridge.command)
+        #expect(j["includeTools"] as? [String] == tools)
+        #expect((o["ui"] as? [String: Any])?["theme"] as? String == "dark")
+        #expect(GeminiBackend.systemDefaults(existing: nil, command: "x", args: [], tools: tools) != nil)
+    }
+
+    @Test func geminiPolicyAllowsOnlyJellyfishTools() {
+        #expect(GeminiBackend.policyTOML.contains(#"mcpName = "jellyfish""#))
+        #expect(GeminiBackend.policyTOML.contains(#"decision = "allow""#))
+        #expect(!GeminiBackend.policyTOML.contains("run_shell_command"))
+        let p = URL(fileURLWithPath: "/tmp/agent/gemini-jellyfish-policy.toml")
+        let a = GeminiBackend.arguments(prompt: "p", sessionID: "6c1d3f1e-2b8a-4c55-9d7e-1a2b3c4d5e6f", resume: false, model: nil, policy: p)
+        #expect(a.contains("--policy") && a.contains(p.path))
+        #expect(!a.contains { $0 == "--yolo" || $0 == "yolo" || $0 == "--skip-trust" })
+    }
+}

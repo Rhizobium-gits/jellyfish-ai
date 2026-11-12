@@ -4,12 +4,33 @@
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-12
+
 ### 追加
 
-- **AI ごとの得意なことで分担**：チームのリーダー（Claude）が、仲間ごとに使う AI を選べる（`create_teammate` / `form_team` の `engine`）。リーダーへの案内に、いま使える AI と、Jellyfish での動かし方から決まる得意なこと・できないこと（Codex はネットワークなし、Gemini はコマンドを実行しない など）を書く。`list_team` は仲間の AI・モデルと使える AI を返す。使えない AI を指定すると理由と使える AI を返す。自律組織モードでも役割ごとに AI を割り振れる
+- **話して入力（音声入力）**：チャットの 🎙 と、メニューの 編集 ›「音声入力を開始」で、Mac の音声入力を入力欄で始める（AI の聞き取りではなく macOS の機能。システム設定 › キーボード › 音声入力 のショートカットでも始められる）
+- **チャットで画像・PDF・Web ページを見る**：添付した画像・PDF と、会話に出てきた画像・PDF のファイルは Quick Look のサムネイルで、Web ページの URL は表紙の画像とタイトル（LinkPresentation）で、文の下に出す。押すとプレビュー・ブラウザで開く。自動で読みに行くのは自分が書いた URL だけで、エージェントの返答の URL は「表紙を見る」を押したときだけ（仕込まれた指示で秘密入りの URL を書かされても送らないように）。メニューバーの「チャットに Web ページのプレビューを出す」で Web のプレビューを止められる
+- **入っていない AI を、許可して入れてそのままログイン**：メニューの「〇〇 を入れてログイン…」・「アカウントと AI」の「入れてログイン…」で、実行するコマンドを見せて許可を求め、許可されたらターミナルで公式のパッケージを入れて（Claude は公式のインストーラ、Codex・Gemini は npm か Homebrew）、続けてその CLI のログインを始める。今までは公式の案内（GitHub）を開くだけだった。sudo は使わない。入ったかどうか・ログインできたかは 15 分まで自動で見に行く
+- **アップデートを許可して入れ替える**：「アップデートを確認…」で新しい版があれば「アップデートする」で、GitHub のリリースから .zip を取ってきて、チェックサム（SHA256SUMS.txt）・中身（バンドル ID と版）・コード署名を確かめてから入れ替えて開き直す。作業中のクラゲがいるとき・アプリを書き換えられない場所のときは入れ替えない。リリースノートも確認の画面に出す
+- チャットの返答の見出しを、その返答を書いた AI の名前にした（今までは AI に関係なく「Claude」）。ターンごとにどの AI が動いたかを覚える
+- **ほかの AI の使用量もメニューバーに**：ChatGPT（Codex）にログインしていれば、Claude の下にプラン（例：ChatGPT Plus）と 5 時間・今週の枠の％・リセットの時刻をバーで出す（Codex CLI が自分の記録に書いた、最後に使ったときの値。モデルは呼ばない）。Gemini は Jellyfish から動かした回数（今日・7 日）。📊 使用量にも ChatGPT の枠の％
+- **添付をどの AI でも**：画面の画像・落とした画像を ChatGPT（Codex）には `--image` で添える（今まではパスを書くだけで、Codex は画像を見られなかった）。Gemini には、クラゲのデータフォルダの中の添付（画面の画像・🎧 の文字起こし）の置き場所を `--include-directories` で足す（今までは作業フォルダの外なので読めなかった）
+- **仲間の考える強さ**：`create_teammate` / `form_team` に `effort`（Claude は low〜max、ChatGPT はそのモデルが対応しているもの。合わないものは理由と選べるものを返す）。リーダーへの案内と `list_team` に AI ごとの選べる強さ。Gemini CLI には考える強さのオプションが無いので付けない（チャットの強さの欄にもそう出す）
+- **AI ごとの得意なことで分担**：チームのリーダー（どの AI でも）が、仲間ごとに使う AI を選べる（`create_teammate` / `form_team` の `engine`）。リーダーへの案内に、いま使える AI と、Jellyfish での動かし方から決まる得意なこと・できないこと（Codex はネットワークなし、Gemini はコマンドを実行しない など）を書く。`list_team` は仲間の AI・モデルと使える AI を返す。使えない AI を指定すると理由と使える AI を返す。自律組織モードでも役割ごとに AI を割り振れる
 - **受け渡し用のフォルダ**：リーダーの依頼ごとにチームで共有するフォルダ（データフォルダの `handoff/`）を作り、どの AI の仲間にも読み書きを許す（Claude は `--add-dir`、Codex はサンドボックスの `writable_roots`、Gemini は `--include-directories`）。依頼文・結果にパスを書いてファイルで受け渡す。空なら終わりに、使ったものは 7 日で片付ける
 - **📊 使用量（AI ごと・直近 7 日）**：メニューバーに、Claude・ChatGPT（Codex）・Gemini それぞれのモデルごと・アカウントごとの呼び出しの回数とトークン（CLI が報告した数。端末内で数える）。Claude は今週の上限の％も
 - チャットの「AI」の各項目に、その AI の得意なことを出す。Claude 以外の AI のときはウィンドウのタイトルにも出す
+- **ChatGPT（Codex）・Gemini でもモデルを選べる**：チャットの上の段のモデル・強さの欄が、選んでいる AI のものに変わる。一覧はそれぞれの CLI が出すもの（`codex debug models` の表示するモデル・`gemini models -o json`）から作り（名前を推測しない。モデルは呼ばない）、1 日覚えておく。ChatGPT は、そのモデルが対応している考える強さ（`model_reasoning_effort`）だけを出す。メニューバーの「🧠 モデル（既定）」で AI ごとの既定のモデルも決められる。チームの `create_teammate` / `form_team` でも `model` で仲間のモデルを選べる（その AI の一覧にないものは理由と選べるモデルを返す）
+- ChatGPT のデスクトップアプリに入っている Codex CLI も見つける（アプリで ChatGPT にログインしていれば、そのまま使える）。いくつか見つかったら、使える版のうちいちばん新しいものを使う
+- チャットの下の段に、Claude 以外の AI ではその AI の動かし方を出す
+- **ChatGPT（Codex）・Gemini のクラゲもチームを組める**：Jellyfish のチームのツール（`create_teammate`・`assign_task`・`wait_for_tasks`・`list_team`・`form_team` など）を、Codex には実行ごとの設定（`mcp_servers.jellyfish`・`enabled_tools`・このサーバーだけ `approve`・`developer_instructions`）で、Gemini にはいちばん優先度の低いシステムの既定の設定ファイルと `--policy`（`mcpName = "jellyfish"` だけ許す）で渡す。仲間を作ると新しいクラゲが隣に出て線でつながり、依頼と結果が線の上を光って行き来する（Claude と同じ）。自律組織モードのリーダーにもなれる。ユーザーの Codex・Gemini の設定ファイルは書き換えない
+- AI を Claude 以外に変えたクラゲは、PC 操作をオフに戻す
+
+### 修正
+
+- 「使う AI（既定）」を変えたとき、それに従っているクラゲが前の AI の会話を新しい AI で続けようとして失敗していた（会話を作った AI を覚え、変わったら新しい会話にする。前の AI のモデル・強さの指定も外す）
+- 過去の Claude Code のセッションを開いたクラゲは、既定の AI が Claude 以外でも Claude で続ける
+- 最初のターンが始まってすぐにアプリを終えると、次の指示が「Session ID … is already in use」で失敗していた（Claude Code がその会話の記録を作っていれば、続きとして開く）
 
 ## [1.0.5] - 2026-11-12
 
@@ -141,6 +162,7 @@
 - 長い会話を開いているとき、更新のたびにセッションのファイル全体を読み直していた（増えた分だけ読む）
 - Claude Code をあとから入れても、アプリを再起動するまで見つけられなかった
 
+[1.0.6]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.6
 [1.0.5]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.3

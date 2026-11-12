@@ -85,6 +85,11 @@ struct AppSettings: Codable {
     /// codex / gemini の実行ファイル（空なら自動で探す）
     var codexPath: String = ""
     var geminiPath: String = ""
+    /// ChatGPT（Codex）・Gemini で、クラゲごとに選んでいないときのモデル（空なら CLI の既定）。値は CLI の一覧の id
+    var codexModel: String = ""
+    var geminiModel: String = ""
+    /// チャットに Web ページのプレビュー（表紙の画像とタイトル）を出すか。出すときは、そのページを Mac の LinkPresentation が読みに行く
+    var linkPreviews: Bool = true
 
     init() {}
 
@@ -118,6 +123,9 @@ struct AppSettings: Codable {
         allowAPIBilling = c.value(Bool.self, .allowAPIBilling, d.allowAPIBilling)
         codexPath = c.value(String.self, .codexPath, d.codexPath)
         geminiPath = c.value(String.self, .geminiPath, d.geminiPath)
+        codexModel = c.value(String.self, .codexModel, d.codexModel)
+        geminiModel = c.value(String.self, .geminiModel, d.geminiModel)
+        linkPreviews = c.value(Bool.self, .linkPreviews, d.linkPreviews)
     }
 }
 

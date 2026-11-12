@@ -10,6 +10,8 @@ struct AgentTurn: Codable {
     var error: String?
     var costUSD: Double?
     var tools: [String] = []
+    /// このターンを動かした AI（チャットの見出しに使う。古い記録では無い）
+    var engine: String?
 }
 
 /// クラゲ1体ぶんのエージェント。セッション・プロセス・履歴・ログ・作業フォルダを他と共有しない。
@@ -20,6 +22,8 @@ final class AgentRuntime {
     private(set) var turns: [AgentTurn] = []
     private(set) var sessionID: String
     private(set) var sessionStarted: Bool
+    /// いまの会話（sessionID）を作った AI。既定の AI が変わったら、続きにせず新しい会話にする
+    private(set) var sessionEngine: AgentEngine?
     private(set) var cwd: URL
     /// クラゲごとのモデル・強さ（nil = 既定）
     var model: String? { didSet { saveMeta() } }
@@ -94,6 +98,7 @@ final class AgentRuntime {
         let validMeta = meta.map { UUID(uuidString: $0.sessionID) != nil } ?? false
         sessionID = validMeta ? meta!.sessionID : UUID().uuidString.lowercased()
         sessionStarted = validMeta ? (meta?.sessionStarted ?? false) : false
+        sessionEngine = validMeta ? meta?.sessionEngine.flatMap(AgentEngine.init(rawValue:)) : nil
         cwd = URL(fileURLWithPath: meta?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
         model = meta?.model
         effort = meta?.effort
@@ -113,6 +118,22 @@ final class AgentRuntime {
 
     var lastTurn: AgentTurn? { turns.last }
 
+    /// 指示の添付の欄（添付ファイル・画面の画像）にある、実在するファイル
+    static func attachedFiles(in text: String) -> [URL] {
+        let markers = [AgentChatController.attachMarker, ScreenContext.marker]
+        guard let start = markers.compactMap({ text.range(of: $0)?.lowerBound }).min() else { return [] }
+        var out: [URL] = []
+        for line in text[start...].split(separator: "\n") where line.hasPrefix("- /") {
+            let p = String(line.dropFirst(2))
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: p, isDirectory: &isDir), !isDir.boolValue {
+                let u = URL(fileURLWithPath: p)
+                if !out.contains(u) { out.append(u) }
+            }
+        }
+        return out
+    }
+
     /// 指示を送る（実行中なら何もしない）
     @discardableResult
     func submit(_ prompt: String) -> Bool {
@@ -127,7 +148,23 @@ final class AgentRuntime {
             refuse(text, why)
             return false
         }
-        turns.append(AgentTurn(prompt: text, startedAt: Date(), state: .thinking))
+        // 会話は AI ごとに別。既定の AI が変わってこのクラゲの AI が変わったときは、前の AI の会話を続けようとせず新しい会話にする
+        // （モデル・強さの指定も前の AI のものなので外す。PC 操作は Claude だけ）
+        if let se = sessionEngine, se != backend.engine {
+            sessionID = UUID().uuidString.lowercased()
+            sessionStarted = false
+            cachedSessionFile = nil
+            cachedTitle = nil
+            model = nil
+            effort = nil
+            if !backend.engine.supportsJellyfishTools { pcControl = false }
+            AppLog.write("agent \(agentID.uuidString.prefix(8)) engine \(se.rawValue) -> \(backend.engine.rawValue): new session")
+        }
+        sessionEngine = backend.engine
+        saveMeta()
+        var turn = AgentTurn(prompt: text, startedAt: Date(), state: .thinking)
+        turn.engine = backend.engine.rawValue
+        turns.append(turn)
         saveTurns()
         pendingTools = 0
         cancelRequested = false
@@ -137,15 +174,22 @@ final class AgentRuntime {
         onState?(.thinking)
         onUpdate?()
 
+        // 前のターンが始まりの知らせ（init）を受け取る前に止まっていても、Claude Code がこの ID の記録を作っていれば続きとして開く
+        // （作り直そうとすると「Session ID … is already in use」で失敗する）
+        if !sessionStarted, backend.engine == .claude, ClaudeSessions.file(for: sessionID) != nil {
+            sessionStarted = true
+            saveMeta()
+        }
         let resume = sessionStarted
         adoptSession = backend.assignsSessionID
         runningEngine = backend.engine
         var opts = AgentRunOptions(model: model, effort: effort)
         let claude = backend.engine == .claude
         if !claude {
-            // Codex・Gemini：モデルは CLI の既定（自動は Claude だけ）。チーム・PC 操作・外部 MCP・追加の案内は渡さない
-            opts.model = nil
-            opts.effort = nil
+            // Codex・Gemini：クラゲで選んだモデル（無ければ設定の既定、それも無ければ CLI の既定）。強さは Codex だけ。
+            // モデルの「自動」（Claude の振り分け）・チーム・PC 操作・外部 MCP・追加の案内は渡さない
+            opts.model = model
+            opts.effort = backend.engine == .codex ? effort : nil
             autoChoice = nil
         } else if (model ?? backend.defaultModel) == ModelRouter.auto {
             // 「自動」：依頼ごとに合うモデルを選ぶ（クラゲの指定が無ければ設定の既定に従う）
@@ -157,11 +201,18 @@ final class AgentRuntime {
         } else {
             autoChoice = nil
         }
-        if claude, let t = teamConfig?() {
-            opts.mcpConfig = t.mcpConfig
-            opts.appendSystemPrompt = t.systemPrompt
-            opts.allowedTools = t.allowedTools
-            opts.env = t.env
+        // チームのツール（Jellyfish の MCP）：Claude は --mcp-config、Codex・Gemini はそれぞれの CLI の設定の形で渡す
+        if let t = teamConfig?() {
+            if claude {
+                opts.mcpConfig = t.mcpConfig
+                opts.appendSystemPrompt = t.systemPrompt
+                opts.allowedTools = t.allowedTools
+                opts.env = t.env
+            } else {
+                opts.mcpBridge = t.bridge
+                opts.mcpTools = t.toolNames
+                opts.instructions = t.systemPrompt
+            }
         }
         if claude, let d = mcpPolicy?(text, cwd, externalMCPSession == sessionID) {
             if d.load {
@@ -177,6 +228,20 @@ final class AgentRuntime {
         if claude { opts.appendSystemPrompt = [AgentRuntime.desktopNote, opts.appendSystemPrompt].compactMap { $0 }.joined(separator: "\n\n") }
         // チームの受け渡し用のフォルダ（どの AI でも読み書きできるように渡す）
         opts.addDirs = extraDirs?() ?? []
+        // 添付（画面の画像・落としたファイル・システムの音の文字起こし）を、どの AI でも読めるように
+        let files = AgentRuntime.attachedFiles(in: text)
+        switch backend.engine {
+        case .codex:
+            // Codex はファイルを読めても画像は見られないので、画像は --image で添える
+            opts.images = Array(files.filter { ChatMedia.imageExts.contains($0.pathExtension.lowercased()) }.prefix(8))
+        case .gemini:
+            // Gemini はワークスペースの外のファイルを読めないので、このクラゲのデータフォルダの中の添付（画面の画像・文字起こし）の置き場所だけ足す
+            let own = dir.standardizedFileURL.path + "/"
+            for d in Set(files.map { $0.deletingLastPathComponent().standardizedFileURL }) where d.path.hasPrefix(own) && !opts.addDirs.contains(d) {
+                opts.addDirs.append(d)
+            }
+        case .claude: break
+        }
         do {
             handle = try backend.run(prompt: text, sessionID: sessionID, resume: resume, cwd: cwd, logDir: dir,
                                      options: opts,
@@ -234,7 +299,7 @@ final class AgentRuntime {
             pendingTools = max(0, pendingTools - 1)
             if pendingTools == 0 { setTurnState(.thinking) }
         case .usage(let m, let input, let output, let cached):
-            onUsage?(runningEngine ?? effectiveEngine, m ?? activeModel, input, output, cached)
+            onUsage?(runningEngine ?? effectiveEngine, m ?? activeModel ?? model, input, output, cached)
             return
         case .finished(let success, let result, let cost, _):
             gotResult = true
@@ -325,9 +390,12 @@ final class AgentRuntime {
         guard !isRunning, e != engine else { return }
         let before = effectiveEngine
         engine = e
+        // PC 操作は Claude だけ
+        if !effectiveEngine.supportsJellyfishTools { pcControl = false }
         if effectiveEngine != before {
             sessionID = UUID().uuidString.lowercased()
             sessionStarted = false
+            sessionEngine = nil
             cachedSessionFile = nil
             cachedTitle = nil
             model = nil
@@ -352,6 +420,7 @@ final class AgentRuntime {
         cwd = url
         sessionID = UUID().uuidString.lowercased()
         sessionStarted = false
+        sessionEngine = nil
         cachedSessionFile = nil
         cachedTitle = nil
         saveMeta()
@@ -363,6 +432,9 @@ final class AgentRuntime {
         guard !isRunning, UUID(uuidString: info.id) != nil else { return }
         sessionID = info.id
         sessionStarted = true
+        // Claude Code のセッションなので、このクラゲは Claude で続ける
+        if effectiveEngine != .claude { engine = .claude }
+        sessionEngine = .claude
         cachedSessionFile = info.file
         cachedTitle = nil
         if let c = info.cwd { cwd = URL(fileURLWithPath: c, isDirectory: true) }
@@ -378,6 +450,7 @@ final class AgentRuntime {
         var pcControl: Bool?
         var externalMCPSession: String?
         var engine: String?
+        var sessionEngine: String?
     }
 
     private static func loadMeta(_ dir: URL) -> Meta? {
@@ -387,7 +460,8 @@ final class AgentRuntime {
 
     private func saveMeta() {
         let m = Meta(sessionID: sessionID, sessionStarted: sessionStarted, cwd: cwd.path, model: model, effort: effort,
-                     pcControl: pcControl, externalMCPSession: externalMCPSession, engine: engine?.rawValue)
+                     pcControl: pcControl, externalMCPSession: externalMCPSession, engine: engine?.rawValue,
+                     sessionEngine: sessionEngine?.rawValue)
         if let d = try? JSONEncoder().encode(m) { try? d.write(to: dir.appendingPathComponent("meta.json"), options: .atomic) }
     }
 

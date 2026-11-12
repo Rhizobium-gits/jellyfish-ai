@@ -38,6 +38,28 @@ enum AccountMenu {
         return out
     }
 
+    /// Claude の下に出す、ほかの AI の欄（ChatGPT は 5 時間・今週の枠のバー、Gemini は Jellyfish が動かした回数）
+    static func engineItems(title: String, detail: String, status: String, limits: [ClaudeAccount.Limit], notes: [String]) -> [NSMenuItem] {
+        var views: [NSView] = [AccountHeaderView(email: title, detail: detail, status: status)]
+        for l in limits { views.append(UsageRowView(l)) }
+        for n in notes { views.append(NoteView(n)) }
+        var out: [NSMenuItem] = views.map { v in
+            let it = NSMenuItem()
+            it.view = v
+            it.isEnabled = false
+            return it
+        }
+        out.append(.separator())
+        return out
+    }
+
+    static func relative(_ d: Date, now: Date = Date()) -> String {
+        let rel = RelativeDateTimeFormatter()
+        rel.locale = Locale(identifier: L("ja_JP"))
+        rel.unitsStyle = .short
+        return rel.localizedString(for: d, relativeTo: now)
+    }
+
     static let width: CGFloat = 300
     static let left: CGFloat = 21
     static let right: CGFloat = 14

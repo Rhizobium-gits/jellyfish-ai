@@ -438,10 +438,18 @@ final class TeamCoordinator {
         let systemPrompt: String
         let allowedTools: [String]
         let env: [String: String]
+        /// Codex・Gemini 用：MCP のブリッジ（このアプリの --mcp-bridge）と、出してよいツールの名前
+        let bridge: (command: String, args: [String])
+        let toolNames: [String]
     }
 
+    /// その実行でエージェントに渡したチームの案内（Gemini には MCP の initialize の instructions で渡す）
+    private var runPrompts: [UUID: String] = [:]
+
     func runConfig(for c: JellyController, runtime rt: AgentRuntime) -> RunConfig? {
-        guard let m = manager, m.settings.teamEnabled || rt.pcControl, let exe = Bundle.main.executableURL else { return nil }
+        // PC 操作のツールは Claude だけ。チームのツールは、どの AI のクラゲにも渡す
+        guard let m = manager, m.settings.teamEnabled || (rt.pcControl && rt.effectiveEngine == .claude),
+              let exe = Bundle.main.executableURL else { return nil }
         let id = c.record.id
         let cfg: [String: Any] = ["mcpServers": ["jellyfish": [
             "type": "stdio", "command": exe.path, "args": ["--mcp-bridge", bus.path, id.uuidString],
@@ -460,10 +468,22 @@ final class TeamCoordinator {
         // 事前に許可するのはチームのツールだけ。PC 操作のツールは毎回 Claude Code の安全判定を通す
         let allowed = m.settings.teamEnabled
             ? teamTools().compactMap { $0["name"] as? String }.map { "mcp__jellyfish__\($0)" } : []
+        runPrompts[id] = prompt
         return RunConfig(mcpConfig: url, systemPrompt: prompt,
                          allowedTools: allowed,
                          // wait_for_tasks は仲間の作業が終わるまで待つので、MCP の既定のタイムアウトより長くする
-                         env: ["MCP_TOOL_TIMEOUT": "2400000"])
+                         env: ["MCP_TOOL_TIMEOUT": "2400000"],
+                         bridge: (exe.path, ["--mcp-bridge", bus.path, id.uuidString]),
+                         toolNames: m.settings.teamEnabled ? teamTools().compactMap { $0["name"] as? String } : [])
+    }
+
+    /// MCP の initialize で返す説明。Claude 以外（Gemini は system prompt を足すオプションが無い）には、チームの案内をここで渡す
+    private func initializeInstructions(_ conn: BusConnection) -> String {
+        if let id = conn.agentID, let c = controller(id), let rt = manager?.runtime(for: c), rt.effectiveEngine != .claude,
+           let p = runPrompts[id] {
+            return p
+        }
+        return L("Jellyfish AI のチーム機能。線でつながった仲間のエージェントに作業を頼み、結果を受け取る。")
     }
 
     // MARK: - 受け渡し用のフォルダと、使える AI
@@ -510,8 +530,59 @@ final class TeamCoordinator {
     func engineRoster() -> String {
         AgentEngine.allCases.map { e -> String in
             let u = engineUsable(e, wait: false)
-            return "- \(e.rawValue)（\(e.displayName)）: " + (u.ok ? e.teamStrengths : L("いまは使えません（%@）", u.why))
+            let models = modelList(e), efforts = TeamCoordinator.effortList(e)
+            return "- \(e.rawValue)（\(e.displayName)）: " + (u.ok ? e.teamStrengths
+                + (models.isEmpty ? "" : L("。モデル（model）: %@", models.joined(separator: ", ")))
+                + (efforts.isEmpty ? "" : L("。考える強さ（effort）: %@", efforts.joined(separator: ", "))) : L("いまは使えません（%@）", u.why))
         }.joined(separator: "\n")
+    }
+
+    /// model の指定を読む（その AI で選べるモデルだけ。Codex・Gemini は CLI の一覧、Claude は別名）
+    func requestedModel(_ raw: Any?, engine e: AgentEngine) -> (String?, String?) {
+        guard let r = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !r.isEmpty else { return (nil, nil) }
+        let valid: [String]
+        switch e {
+        case .claude:
+            if r.lowercased() == "haiku" { return ("claude-haiku-5-5", nil) }
+            valid = [ModelRouter.auto] + ModelRouter.models.map(\.value)
+        case .codex, .gemini:
+            valid = EngineModelCatalog.shared.models(e).map(\.id)
+            // 一覧をまだ読めていなければ、そのまま渡す（CLI が受け付けなければ、その仲間の結果にエラーが返る）
+            if valid.isEmpty { return (r, nil) }
+        }
+        if let v = valid.first(where: { $0.lowercased() == r.lowercased() }) { return (v, nil) }
+        return (nil, L("%@ のモデル「%@」はありません。選べるモデル: %@", e.displayName, r, valid.joined(separator: ", ")))
+    }
+
+    /// AI ごとの選べる考える強さ（Claude は --effort、ChatGPT はそのモデルが対応しているもの。Gemini CLI には指定のオプションが無い）
+    static func effortList(_ e: AgentEngine, model: String? = nil) -> [String] {
+        switch e {
+        case .claude: return AgentChatController.efforts.compactMap(\.value)
+        case .codex:
+            let cat = EngineModelCatalog.shared
+            if let m = model, let levels = cat.model(.codex, id: m)?.efforts { return levels }
+            return cat.models(.codex).reduce(into: [String]()) { acc, m in for x in m.efforts where !acc.contains(x) { acc.append(x) } }
+        case .gemini: return []
+        }
+    }
+
+    /// effort の指定を読む（その AI・モデルで選べるものだけ）
+    static func requestedEffort(_ raw: Any?, engine e: AgentEngine, model: String?) -> (String?, String?) {
+        guard let r = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !r.isEmpty else { return (nil, nil) }
+        let valid = TeamCoordinator.effortList(e, model: model)
+        if e == .gemini { return (nil, L("Gemini CLI には考える強さを指定するオプションが無いので、effort は付けられません")) }
+        // ChatGPT の一覧をまだ読めていなければ、英小文字の名前だけそのまま渡す（CLI が受け付けなければ、その仲間の結果にエラーが返る）
+        if valid.isEmpty { return r.allSatisfy({ $0.isASCII && $0.isLetter }) ? (r, nil) : (nil, L("effort「%@」は使えません", r)) }
+        if valid.contains(r) { return (r, nil) }
+        return (nil, L("%@ の考える強さ「%@」はありません。選べるもの: %@", e.displayName, r, valid.joined(separator: ", ")))
+    }
+
+    /// AI ごとの選べるモデル（リーダーへの案内用。多すぎれば先頭だけ）
+    func modelList(_ e: AgentEngine) -> [String] {
+        switch e {
+        case .claude: return [ModelRouter.auto] + ModelRouter.models.map(\.value)
+        case .codex, .gemini: return Array(EngineModelCatalog.shared.models(e).map(\.id).prefix(10))
+        }
     }
 
     /// engine の指定を読む（無ければ nil = 自分と同じ AI）。使えない AI なら理由
@@ -529,7 +600,7 @@ final class TeamCoordinator {
     /// PC 操作のツールを渡すか：PC 操作がオンで、ユーザー本人が頼んだターン（仲間からの依頼ではない）のときだけ。
     /// 仲間は Web ページなどの文章に誘導されている（プロンプトインジェクション）かもしれないので、
     /// 1 体に PC 操作を許すとチーム全体に許したことになる、ということがないように
-    func usesPCTools(_ id: UUID, _ rt: AgentRuntime) -> Bool { rt.pcControl && running[id] == nil }
+    func usesPCTools(_ id: UUID, _ rt: AgentRuntime) -> Bool { rt.pcControl && running[id] == nil && rt.effectiveEngine.supportsJellyfishTools }
 
     /// いま仲間からの依頼で動いているなら、依頼元のエージェント
     func requester(ofRunning id: UUID) -> UUID? { running[id].flatMap { tasks[$0]?.from } }
@@ -589,6 +660,8 @@ final class TeamCoordinator {
                 "after": ["type": "array", "items": ["type": "string"], "description": L("先に終わっている必要がある仲間の名前。その結果がこの人の依頼文に付く")] as [String: Any],
                 "engine": ["type": "string", "enum": AgentEngine.allCases.map(\.rawValue),
                            "description": L("この仲間が使う AI（claude / codex / gemini。省略すると自分と同じ）。得意なことで選ぶ")] as [String: Any],
+                "model": ["type": "string", "description": L("この仲間が使うモデル（その AI で選べるもの。list_team の engines の models。省略するとその AI の既定）")] as [String: Any],
+                "effort": ["type": "string", "description": L("この仲間の考える強さ（list_team の engines の efforts。Claude は low〜max、ChatGPT はそのモデルが対応しているもの。Gemini は付けられない。省略すると既定）")] as [String: Any],
             ] as [String: Any]] as [String: Any]] as [String: Any],
             "dissolve_others": ["type": "boolean", "description": L("自律組織で前に作った仲間のうち、今回使わない人を片付ける（既定 true）")],
          ] as [String: Any]] as [String: Any]]
@@ -674,6 +747,8 @@ final class TeamCoordinator {
         let raw = (args["members"] as? [[String: Any]]) ?? []
         var members: [(name: String, role: String?, task: String, after: [String])] = []
         var engines: [String: AgentEngine] = [:]
+        var models: [String: String] = [:]
+        var efforts: [String: String] = [:]
         var seen = Set<String>()
         for r in raw {
             let n = String(((r["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(24))
@@ -686,6 +761,12 @@ final class TeamCoordinator {
             let (e, engineError) = requestedEngine(r["engine"])
             if let engineError { reply(engineError, true); return }
             if let e { engines[n.lowercased()] = e }
+            let (md, modelError) = requestedModel(r["model"], engine: e ?? (m.runtime(for: me)?.effectiveEngine ?? .claude))
+            if let modelError { reply(modelError, true); return }
+            if let md { models[n.lowercased()] = md }
+            let (ef, effortError) = TeamCoordinator.requestedEffort(r["effort"], engine: e ?? (m.runtime(for: me)?.effectiveEngine ?? .claude), model: md)
+            if let effortError { reply(effortError, true); return }
+            if let ef { efforts[n.lowercased()] = ef }
         }
         guard !members.isEmpty else { reply(L("members が空です。仲間を使わないなら、form_team を呼ばずに一人で進めてください"), true); return }
         guard members.count < TeamCoordinator.maxTeamSize else {
@@ -735,6 +816,13 @@ final class TeamCoordinator {
             link(caller, c.record.id)
             targets[mb.name.lowercased()] = c
         }
+        // 指定した AI・モデルにする（続けて使う仲間も。AI を変えるのは空いているときだけ＝新しい会話になる）
+        for (key, c) in targets {
+            guard let rt = m.runtime(for: c) else { continue }
+            if let e = engines[key], e != rt.effectiveEngine, !rt.isRunning { rt.changeEngine(e) }
+            if let md = models[key] { rt.model = md }
+            if let ef = efforts[key] { rt.effort = ef }
+        }
         let ep = episodeID(for: caller)
         var ids: [String: String] = [:]
         var out: [[String: Any]] = []
@@ -767,7 +855,7 @@ final class TeamCoordinator {
             return L("- %@（%@、%@、%@）", m.record.title, m.record.color.name, st, direct) + " · " + ai
         }.joined(separator: "\n")
         if roster.isEmpty { roster = L("- まだ仲間はいません（create_teammate で作れます）") }
-        let pcNote = rt.pcControl ? "" : "\n" + L("PC 操作（画面を見てクリック・入力する）は、ユーザーがこのエージェントのチャットで「🖱 PC 操作」をオンにすると使えます。頼まれたらそう伝えてください。")
+        let pcNote = (rt.pcControl || rt.effectiveEngine != .claude) ? "" : "\n" + L("PC 操作（画面を見てクリック・入力する）は、ユーザーがこのエージェントのチャットで「🖱 PC 操作」をオンにすると使えます。頼まれたらそう伝えてください。")
         let depth = c.record.depth ?? 0
         let room = max(0, min(TeamCoordinator.maxTeamSize - team(of: id).count,
                               TeamCoordinator.maxAgents - (manager?.controllers.count ?? 0)))
@@ -794,7 +882,7 @@ final class TeamCoordinator {
         let engines = L("""
         仲間ごとに使う AI を選べます（create_teammate / form_team の engine）。それぞれの得意なことで分担してください:
         %@
-        Claude 以外の仲間は、チームのツール・PC 操作を使えません（頼まれた作業だけをする）。
+        どの AI の仲間も、チームのツールで、さらに仲間を作ったり頼んだりできます。PC 操作は Claude の仲間だけです。
         """, engineRoster())
         // 受け渡し用のフォルダ
         let handoff = (leadHandoff[id] ?? running[id].flatMap { tasks[$0]?.handoff }).map {
@@ -928,7 +1016,7 @@ final class TeamCoordinator {
             let pv = (msg["params"] as? [String: Any])?["protocolVersion"] as? String ?? "2025-06-18"
             reply(["protocolVersion": pv, "capabilities": ["tools": [:]],
                    "serverInfo": ["name": "jellyfish", "version": AppInfo.version],
-                   "instructions": L("Jellyfish AI のチーム機能。線でつながった仲間のエージェントに作業を頼み、結果を受け取る。")])
+                   "instructions": initializeInstructions(conn)])
         case "ping":
             reply([:])
         case "tools/list":
@@ -975,6 +1063,8 @@ final class TeamCoordinator {
             "task": ["type": "string", "description": L("最初に任せる作業（省略可）")],
             "engine": ["type": "string", "enum": AgentEngine.allCases.map(\.rawValue),
                        "description": L("この仲間が使う AI（claude / codex / gemini。省略すると自分と同じ）。得意なことで選ぶ")],
+            "model": ["type": "string", "description": L("この仲間が使うモデル（その AI で選べるもの。list_team の engines の models。省略するとその AI の既定）")],
+            "effort": ["type": "string", "description": L("この仲間の考える強さ（list_team の engines の efforts。Claude は low〜max、ChatGPT はそのモデルが対応しているもの。Gemini は付けられない。省略すると既定）")],
          ] as [String: Any]]],
         ["name": "read_transcript",
          "description": L("ユーザーが「🎧 聞き取り」で拾ったシステムの音（会議・動画など）の文字起こしを読む。聞き取り中なら途中まで。since_line を渡すとその行より後だけ返す（リアルタイムの翻訳・要約に使う）。from に仲間の名前を渡すとその仲間の文字起こしを読む。"),
@@ -1030,7 +1120,8 @@ final class TeamCoordinator {
                 "can_create": canCreateCount(from: me),
                 "engines": AgentEngine.allCases.map { e -> [String: Any] in
                     let u = engineUsable(e, wait: false)
-                    return ["engine": e.rawValue, "name": e.displayName, "available": u.ok, "strengths": e.teamStrengths]
+                    return ["engine": e.rawValue, "name": e.displayName, "available": u.ok, "strengths": e.teamStrengths, "models": modelList(e),
+                            "efforts": TeamCoordinator.effortList(e)]
                 },
                 "handoff_dir": handoffDirs(for: caller).first?.path ?? "",
             ])
@@ -1057,7 +1148,13 @@ final class TeamCoordinator {
             let nm = m.uniqueName(String((raw.isEmpty ? L("仲間") : raw).prefix(24)))
             let (engine, engineError) = requestedEngine(args["engine"])
             if let engineError { fail(engineError); return }
+            let (model, modelError) = requestedModel(args["model"], engine: engine ?? (m.runtime(for: me)?.effectiveEngine ?? .claude))
+            if let modelError { fail(modelError); return }
+            let (effort, effortError) = TeamCoordinator.requestedEffort(args["effort"], engine: engine ?? (m.runtime(for: me)?.effectiveEngine ?? .claude), model: model)
+            if let effortError { fail(effortError); return }
             guard let c = m.spawnTeammate(near: me, name: nm, engine: engine) else { fail(L("仲間を作れませんでした")); return }
+            if let model { m.runtime(for: c)?.model = model }
+            if let effort { m.runtime(for: c)?.effort = effort }
             link(caller, c.record.id)
             var out: [String: Any] = ["name": c.record.title, "color": c.record.color.name,
                                       "engine": (m.runtime(for: c)?.effectiveEngine ?? .claude).rawValue]

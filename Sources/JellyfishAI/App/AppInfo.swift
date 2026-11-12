@@ -82,10 +82,10 @@ enum AppVersion {
     }
 }
 
-/// アップデートの確認。メニューから選んだときだけ GitHub の公開情報（最新リリースの番号）を 1 回読む。
-/// 自動では確認しない（ユーザーが意図しない通信をしない）。ダウンロード・インストールはブラウザで本人が行う
+/// アップデートの確認。メニューから選んだときだけ GitHub の公開情報（最新リリース）を 1 回読む。
+/// 自動では確認しない（ユーザーが意図しない通信をしない）。新しい版があれば、許可を求めてから入れ替える（AppUpdater）
 enum UpdateChecker {
-    static func check() {
+    static func check(manager: JellyManager? = nil) {
         var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(AppInfo.repo)/releases/latest")!)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 15
@@ -97,27 +97,74 @@ enum UpdateChecker {
                 let a = NSAlert()
                 a.icon = NSApp.applicationIconImage
                 let current = AppInfo.version
-                if let tag, status == 200 {
-                    if AppVersion.isNewer(tag, than: current) {
-                        a.messageText = L("新しいバージョン %@ があります", tag)
-                        a.informativeText = L("いまのバージョンは %@ です。ダウンロードページから .dmg を入れ直してください（設定・クラゲ・会話はそのまま残ります）。", current)
-                        a.addButton(withTitle: L("ダウンロードページを開く"))
-                        a.addButton(withTitle: L("あとで"))
-                    } else {
-                        a.messageText = L("最新のバージョンです")
-                        a.informativeText = "Jellyfish AI \(current)"
-                        a.addButton(withTitle: "OK")
-                    }
-                } else {
+                NSApp.activate(ignoringOtherApps: true)
+                guard let tag, status == 200 else {
                     a.messageText = L("アップデートを確認できませんでした")
                     a.informativeText = err?.localizedDescription ?? (status == 404 ? L("まだリリースがありません。") : L("GitHub から応答がありません（%ld）。", status))
                     a.addButton(withTitle: L("リリースのページを開く"))
                     a.addButton(withTitle: L("閉じる"))
+                    if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(AppInfo.releasesURL) }
+                    return
                 }
-                NSApp.activate(ignoringOtherApps: true)
-                let r = a.runModal()
-                if a.buttons.count == 2, r == .alertFirstButtonReturn { NSWorkspace.shared.open(AppInfo.releasesURL) }
+                guard AppVersion.isNewer(tag, than: current) else {
+                    a.messageText = L("最新のバージョンです")
+                    a.informativeText = "Jellyfish AI \(current)"
+                    a.addButton(withTitle: "OK")
+                    a.runModal()
+                    return
+                }
+                a.messageText = L("新しいバージョン %@ があります", tag)
+                let release = json.flatMap(AppUpdater.release(from:))
+                if let release {
+                    var text = L("いまのバージョンは %@ です。「アップデートする」を押すと、GitHub のリリースから新しい版をダウンロードし、チェックサムと署名を確かめてから入れ替えて、開き直します（設定・クラゲ・会話はそのまま残ります）。", current)
+                    if AppUpdater.isAdhoc(Bundle.main.bundleURL) {
+                        text += "\n\n" + L("いまの版は仮の署名（ad-hoc）なので、入れ替えたあと macOS に画面収録・アクセシビリティ・フォルダの許可をもう一度求められることがあります（システム設定で許可し直してください）。")
+                    }
+                    a.informativeText = text
+                    a.accessoryView = notesView(release.notes)
+                    a.addButton(withTitle: L("アップデートする"))
+                    a.addButton(withTitle: L("ダウンロードページを開く"))
+                    a.addButton(withTitle: L("あとで"))
+                    switch a.runModal() {
+                    case .alertFirstButtonReturn: UpdateSession.start(release, manager: manager)
+                    case .alertSecondButtonReturn: NSWorkspace.shared.open(AppInfo.releasesURL)
+                    default: break
+                    }
+                } else {
+                    a.informativeText = L("いまのバージョンは %@ です。ダウンロードページから .dmg を入れ直してください（設定・クラゲ・会話はそのまま残ります）。", current)
+                    a.addButton(withTitle: L("ダウンロードページを開く"))
+                    a.addButton(withTitle: L("あとで"))
+                    if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(AppInfo.releasesURL) }
+                }
             }
         }.resume()
+    }
+
+    /// リリースノート（スクロールできる小さな欄）
+    private static func notesView(_ notes: String) -> NSView? {
+        let text = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 380, height: 160))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let tv = NSTextView(frame: scroll.bounds)
+        tv.isEditable = false
+        tv.textContainerInset = NSSize(width: 6, height: 6)
+        tv.textStorage?.setAttributedString(Markdown.render(text, size: 11.5))
+        tv.autoresizingMask = [.width]
+        scroll.documentView = tv
+        return scroll
+    }
+
+    /// 入れ替えられなかったとき（理由と、ダウンロードページ）
+    static func fallback(_ message: String, offerPage: Bool) {
+        let a = NSAlert()
+        a.icon = NSApp.applicationIconImage
+        a.messageText = L("アップデートできませんでした")
+        a.informativeText = message
+        if offerPage { a.addButton(withTitle: L("ダウンロードページを開く")) }
+        a.addButton(withTitle: L("閉じる"))
+        NSApp.activate(ignoringOtherApps: true)
+        if a.runModal() == .alertFirstButtonReturn, offerPage { NSWorkspace.shared.open(AppInfo.releasesURL) }
     }
 }

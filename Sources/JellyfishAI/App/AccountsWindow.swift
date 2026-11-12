@@ -45,7 +45,7 @@ final class AccountsWindowController: NSObject, NSWindowDelegate {
             left.spacing = 2
             let login = NSButton(title: L("ログイン…"), target: self, action: #selector(login(_:)))
             login.identifier = NSUserInterfaceItemIdentifier(e.rawValue)
-            let setup = NSButton(title: L("入れ方…"), target: self, action: #selector(setup(_:)))
+            let setup = NSButton(title: L("入れてログイン…"), target: self, action: #selector(setup(_:)))
             setup.identifier = NSUserInterfaceItemIdentifier(e.rawValue)
             for b in [login, setup] { b.bezelStyle = .rounded; b.controlSize = .regular }
             let row = NSStackView(views: [use, left, NSView(), setup, login])
@@ -129,20 +129,7 @@ final class AccountsWindowController: NSObject, NSWindowDelegate {
 
     @objc private func setup(_ sender: NSButton) {
         guard let e = engine(sender) else { return }
-        let a = NSAlert()
-        a.messageText = L("%@ を入れる", e.cliTitle)
-        a.informativeText = L("ターミナルで次のコマンドを実行してから、ここでログインしてください（Jellyfish はインストールを代わりに実行しません）。\n\n%@\n\n詳しくは公式の案内を見てください。", e.installCommand)
-        a.addButton(withTitle: L("コマンドをコピー"))
-        a.addButton(withTitle: L("公式の案内を開く"))
-        a.addButton(withTitle: L("閉じる"))
-        switch a.runModal() {
-        case .alertFirstButtonReturn:
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(e.installCommand, forType: .string)
-        case .alertSecondButtonReturn:
-            NSWorkspace.shared.open(e.setupURL)
-        default: break
-        }
+        manager?.offerInstall(e)
     }
 
     @objc private func closeWindow() { window.performClose(nil) }

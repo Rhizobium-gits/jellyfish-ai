@@ -34,15 +34,6 @@ enum AgentEngine: String, Codable, CaseIterable {
         }
     }
 
-    /// インストールのコマンドの例（案内に出すだけ。Jellyfish は実行しない）
-    var installCommand: String {
-        switch self {
-        case .claude: return "curl -fsSL https://claude.ai/install.sh | bash"
-        case .codex: return "npm install -g @openai/codex"
-        case .gemini: return "npm install -g @google/gemini-cli"
-        }
-    }
-
     /// 使うアカウント（サブスクリプション）の名前
     var accountKind: String {
         switch self {
@@ -52,14 +43,14 @@ enum AgentEngine: String, Codable, CaseIterable {
         }
     }
 
-    /// Jellyfish の機能のうち、このエンジンで使えるもの（チーム・PC 操作・自律組織・外部 MCP は Claude Code の仕組みを使う）
+    /// PC 操作・外部 MCP・モデルの「自動」を使えるか（Claude だけ）。チームのツール（仲間を作る・頼む）・自律組織はどの AI でも使える
     var supportsJellyfishTools: Bool { self == .claude }
 
     /// チームで分担するときの得意なこと・できないこと（Jellyfish での動かし方から決まるもの。リーダーへの案内とメニューに出す）
     var teamStrengths: String {
         switch self {
         case .claude:
-            return L("リーダー・まとめ・レビュー、長い多段の作業、コマンドの実行、Web 検索、PC 操作（許可したとき）、外部ツール（MCP）。仲間に頼める（チームのツールを持つのは Claude だけ）")
+            return L("リーダー・まとめ・レビュー、長い多段の作業、コマンドの実行、Web 検索、PC 操作（許可したとき）、外部ツール（MCP）")
         case .codex:
             return L("コードの実装・修正、テストやビルドの実行（作業フォルダの中だけ。ネットワークなしなので、Web 検索・パッケージのダウンロードはできない）")
         case .gemini:
@@ -173,13 +164,31 @@ enum CLILocator {
         }
         candidates += ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "\(home)/.npm-global/bin", "\(home)/.bun/bin"]
             .map { "\($0)/\(e.cliName)" }
+        // ChatGPT のデスクトップアプリに入っている Codex CLI（アプリで ChatGPT にログインしていれば、そのまま使える）
+        if e == .codex {
+            for root in ["/Applications", "\(home)/Applications"] {
+                for app in (try? fm.contentsOfDirectory(atPath: root)) ?? [] where app.hasSuffix(".app") && (app.hasPrefix("ChatGPT") || app.hasPrefix("Codex")) {
+                    candidates.append("\(root)/\(app)/Contents/Resources/codex-cli/bin/codex")
+                }
+            }
+        }
+        // 見つかったものから、使える（オプションがそろっている）いちばん新しい版を選ぶ
         var seen = Set<String>()
+        var found: [CLIInstall] = []
         for c in candidates where fm.isExecutableFile(atPath: c) && seen.insert(c).inserted {
             guard let v = run(URL(fileURLWithPath: c), ["--version"], timeout: 15) else { continue }
             let version = v.split(whereSeparator: { $0 == " " || $0 == "\n" }).last { $0.first?.isNumber == true }.map(String.init) ?? "?"
-            return CLIInstall(engine: e, url: URL(fileURLWithPath: c), version: version, missing: missingOptions(e, URL(fileURLWithPath: c)))
+            found.append(CLIInstall(engine: e, url: URL(fileURLWithPath: c), version: version, missing: missingOptions(e, URL(fileURLWithPath: c))))
         }
-        return nil
+        return found.max { a, b in
+            if (a.missing == nil) != (b.missing == nil) { return a.missing != nil }
+            return CLILocator.versionParts(a.version).lexicographicallyPrecedes(CLILocator.versionParts(b.version))
+        }
+    }
+
+    /// 「0.162.0-alpha.2」→ [0, 162, 0]
+    static func versionParts(_ v: String) -> [Int] {
+        (v.split(separator: "-").first ?? "").split(separator: ".").map { Int($0) ?? 0 }
     }
 
     /// 使うオプションが --help にあるか（推測でオプションを付けない）
@@ -202,7 +211,7 @@ enum CLILocator {
         return m.isEmpty ? nil : m.joined(separator: ", ")
     }
 
-    static func run(_ url: URL, _ args: [String], timeout: Double) -> String? {
+    static func run(_ url: URL, _ args: [String], timeout: Double, mergeStderr: Bool = true) -> String? {
         let p = Process()
         p.executableURL = url
         p.arguments = args
@@ -211,7 +220,7 @@ enum CLILocator {
         p.standardInput = FileHandle.nullDevice
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = out
+        p.standardError = mergeStderr ? out : FileHandle.nullDevice
         do { try p.run() } catch { return nil }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if p.isRunning { p.terminate() } }
         let data = out.fileHandleForReading.readDataToEndOfFile()
@@ -343,37 +352,165 @@ enum EngineLogin {
 
     /// ターミナルで実行するスクリプト。課金の環境変数を外してから、その CLI のログインを始める
     static func script(_ e: AgentEngine, cli: URL, folder: URL?, allowAPI: Bool) -> String {
-        var lines = ["#!/bin/zsh -l"]
-        if !allowAPI { lines.append("unset " + BillingGuard.apiEnvKeys.joined(separator: " ")) }
+        var lines = header(allowAPI: allowAPI)
         if let f = folder { lines.append("cd \(shellQuote(f.path)) || exit 1") }
         lines.append("clear")
+        lines += loginLines(e, cli: shellQuote(cli.path), folder: folder)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// スクリプトの頭（課金の環境変数を外す）
+    static func header(allowAPI: Bool) -> [String] {
+        var lines = ["#!/bin/zsh -l"]
+        if !allowAPI { lines.append("unset " + BillingGuard.apiEnvKeys.joined(separator: " ")) }
+        return lines
+    }
+
+    /// ログインを始める行（cli はシェルの式：クォート済みのパスか "$cli"）
+    static func loginLines(_ e: AgentEngine, cli: String, folder: URL?) -> [String] {
         let note: String
         let command: String
         switch e {
         case .claude:
             note = L("Claude のアカウント（Pro / Max）でログインします。ブラウザが開いたら、ログインして許可してください。")
-            command = "exec \(shellQuote(cli.path)) auth login --claudeai"
+            command = "exec \(cli) auth login --claudeai"
         case .codex:
             note = L("ChatGPT のアカウントでログインします（「Sign in with ChatGPT」）。ブラウザが開いたら、ログインして許可してください。API キーは使わないでください（従量課金になります）。")
-            command = "exec \(shellQuote(cli.path)) login"
+            command = "exec \(cli) login"
         case .gemini:
             note = folder == nil
                 ? L("Gemini CLI が開きます。ログインの方法を聞かれたら「Sign in with Google」（Google アカウント）を選んでください。API キー・Vertex AI は選ばないでください（従量課金になります）。終わったら /quit で閉じてください。")
                 : L("このフォルダで Gemini CLI を開きます。「このフォルダを信頼するか」を聞かれたら、信頼してよいフォルダのときだけ信頼してください。終わったら /quit で閉じてください。")
-            command = "exec \(shellQuote(cli.path))"
+            command = "exec \(cli)"
         }
-        lines.append("printf '%s\\n\\n' \(shellQuote("🪼 Jellyfish AI: " + note))")
-        lines.append(command)
-        return lines.joined(separator: "\n") + "\n"
+        return ["printf '%s\\n\\n' \(shellQuote("🪼 Jellyfish AI: " + note))", command]
     }
 
     /// スクリプトをデータフォルダに書いてターミナルで開く
     static func open(_ e: AgentEngine, cli: URL, folder: URL? = nil, allowAPI: Bool) -> Bool {
-        let url = AppPaths.dataDir.appendingPathComponent("login-\(e.rawValue).command")
+        openScript(script(e, cli: cli, folder: folder, allowAPI: allowAPI), name: "login-\(e.rawValue)")
+    }
+
+    static func openScript(_ text: String, name: String) -> Bool {
+        let url = AppPaths.dataDir.appendingPathComponent("\(name).command")
         do {
-            try script(e, cli: cli, folder: folder, allowAPI: allowAPI).write(to: url, atomically: true, encoding: .utf8)
+            try text.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         } catch { return false }
         return NSWorkspace.shared.open(url)
+    }
+}
+
+/// CLI が入っていないとき：ユーザーが許可したら、公式のパッケージをターミナルで入れて、続けてログインを始める。
+/// 入れ方は決まったものだけ（Claude は公式のインストーラ、Codex・Gemini は npm か Homebrew の公式パッケージ）。
+/// 管理者のパスワード（sudo）は使わない。コマンドは許可を求める画面にそのまま出し、そのとおりに実行する
+enum EngineInstall {
+    enum Tool: Equatable { case official, npm(String), brew(String) }
+
+    struct Plan: Equatable {
+        let engine: AgentEngine
+        let tool: Tool
+        /// 許可を求める画面に出し、そのまま実行するコマンド
+        let command: String
+    }
+
+    /// npm のパッケージ名・Homebrew の入れ方（公式の案内にあるもの）
+    static func npmPackage(_ e: AgentEngine) -> String? {
+        switch e {
+        case .claude: return nil
+        case .codex: return "@openai/codex"
+        case .gemini: return "@google/gemini-cli"
+        }
+    }
+    static func brewArgs(_ e: AgentEngine) -> String? {
+        switch e {
+        case .claude: return nil
+        case .codex: return "install --cask codex"
+        case .gemini: return "install gemini-cli"
+        }
+    }
+
+    /// 入れ方を決める。npm が使えればnpm（グローバルの入れ先に書けるときだけ）、だめなら Homebrew、どちらも無ければ nil
+    static func plan(_ e: AgentEngine, npm: String?, npmWritable: Bool, brew: String?) -> Plan? {
+        if e == .claude { return Plan(engine: e, tool: .official, command: "curl -fsSL https://claude.ai/install.sh | bash") }
+        if let npm, npmWritable, let pkg = npmPackage(e) {
+            return Plan(engine: e, tool: .npm(npm), command: "\(word(npm)) install -g \(pkg)")
+        }
+        if let brew, let args = brewArgs(e) {
+            return Plan(engine: e, tool: .brew(brew), command: "\(word(brew)) \(args)")
+        }
+        return nil
+    }
+
+    /// パスを 1 語に（ふつうの文字だけならそのまま、ほかはクォート）
+    static func word(_ s: String) -> String {
+        s.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "/._-+").contains($0) || ($0.isASCII && CharacterSet.alphanumerics.contains($0)) })
+            ? s : EngineLogin.shellQuote(s)
+    }
+
+    /// 入れてからログインするスクリプト
+    static func script(_ p: Plan, allowAPI: Bool) -> String {
+        let e = p.engine
+        let q = EngineLogin.shellQuote
+        var lines = EngineLogin.header(allowAPI: allowAPI)
+        lines.append("set -o pipefail")
+        lines.append("clear")
+        lines.append("printf '%s\\n\\n  %s\\n\\n' \(q("🪼 Jellyfish AI: " + L("%@ を入れます（あなたが許可したコマンド）:", e.cliTitle))) \(q(p.command))")
+        switch p.tool {
+        case .official: break
+        case .npm(let path), .brew(let path):
+            // npm は node を、brew は自分の仲間を PATH から探すので、見つけた場所を前に足す
+            lines.append("export PATH=\(q((path as NSString).deletingLastPathComponent)):\"$PATH\"")
+        }
+        lines.append(p.command)
+        lines.append("if [ $? -ne 0 ]; then")
+        lines.append("  printf '\\n%s\\n%s\\n' \(q("⚠️ " + L("入れられませんでした。上のメッセージを確かめてください。"))) \(q(L("公式の案内: %@", e.setupURL.absoluteString)))")
+        lines.append("  exit 1")
+        lines.append("fi")
+        // 入ったものを見つける
+        switch p.tool {
+        case .official: lines.append("export PATH=\"$HOME/.local/bin:$PATH\"")
+        case .npm(let npm): lines.append("export PATH=\"$(\(q(npm)) prefix -g)/bin:$PATH\"")
+        case .brew(let brew): lines.append("export PATH=\"$(\(q(brew)) --prefix)/bin:$PATH\"")
+        }
+        lines.append("hash -r")
+        lines.append("cli=\"$(command -v \(e.cliName))\"")
+        lines.append("if [ -z \"$cli\" ]; then")
+        lines.append("  printf '\\n%s\\n' \(q("⚠️ " + L("入りましたが %@ が見つかりません。ターミナルを開き直してから、メニューバーのクラゲ › 🔑 アカウントと AI でログインしてください。", e.cliName)))")
+        lines.append("  exit 1")
+        lines.append("fi")
+        lines.append("printf '\\n%s\\n\\n' \(q("✅ " + L("入りました。続けてログインします。"))) ")
+        lines += EngineLogin.loginLines(e, cli: "\"$cli\"", folder: nil)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// npm・brew を探す（シェルの PATH と、よくある場所）
+    static func findTool(_ name: String) -> String? {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        var dirs = (ShellEnvironment.shared.environment()["PATH"] ?? "").split(separator: ":").map(String.init)
+        dirs += ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.volta/bin", "\(home)/.local/bin"]
+        for d in dirs where !d.isEmpty {
+            let p = "\(d)/\(name)"
+            if fm.isExecutableFile(atPath: p) { return p }
+        }
+        return nil
+    }
+
+    /// npm のグローバルの入れ先（そこに書けるか。書けなければ sudo が要るので npm は使わない）
+    static func npmPrefix(_ npm: String) -> (path: String, writable: Bool)? {
+        guard let out = CLILocator.run(URL(fileURLWithPath: npm), ["prefix", "-g"], timeout: 15, mergeStderr: false) else { return nil }
+        let prefix = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard prefix.hasPrefix("/") else { return nil }
+        let fm = FileManager.default
+        let target = ["\(prefix)/lib/node_modules", "\(prefix)/lib", prefix].first { fm.fileExists(atPath: $0) } ?? prefix
+        // パッケージの置き場所と、コマンドの置き場所（無ければ作れるか）の両方に書けること
+        let bin = "\(prefix)/bin"
+        let binOK = fm.fileExists(atPath: bin) ? fm.isWritableFile(atPath: bin) : fm.isWritableFile(atPath: prefix)
+        return (prefix, fm.isWritableFile(atPath: target) && binOK)
+    }
+
+    static func open(_ p: Plan, allowAPI: Bool) -> Bool {
+        EngineLogin.openScript(script(p, allowAPI: allowAPI), name: "install-\(p.engine.rawValue)")
     }
 }
