@@ -675,3 +675,24 @@ final class RecordingBackend: AgentBackend {
         #expect(AgentChatController.typedText("  ただの指示  ") == "ただの指示")
     }
 }
+
+@Suite struct SessionFileSizeTests {
+    /// 96KB〜160KB のセッションのファイルでタイトルを読むと、引き算があふれてアプリが落ちていた
+    @Test func readsTitlesOfMidSizedSessions() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("jf-sess-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for size in [10_000, 100_000, 120_000, 159_999, 160_000, 200_000] {
+            let id = UUID().uuidString.lowercased()
+            let f = dir.appendingPathComponent("\(id).jsonl")
+            var body = #"{"type":"user","cwd":"/tmp","message":{"role":"user","content":"はじめの指示"}}"# + "\n"
+            let filler = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}"# + "\n"
+            while body.utf8.count < size - 80 { body += filler }
+            body += #"{"type":"ai-title","aiTitle":"テストの会話"}"# + "\n"
+            try body.write(to: f, atomically: true, encoding: .utf8)
+            let info = try #require(ClaudeSessions.info(file: f))
+            #expect(info.id == id)
+            #expect(info.title == "テストの会話" || info.title == "はじめの指示")
+        }
+    }
+}

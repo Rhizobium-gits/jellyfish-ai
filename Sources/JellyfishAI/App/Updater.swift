@@ -143,6 +143,23 @@ enum SourceCheckout {
 }
 
 extension AppUpdater {
+    /// Jellyfish AI を開き直す（画面収録の許可は、開き直すまで効かない）。作業中のクラゲがいれば false
+    @discardableResult
+    static func relaunch(manager: JellyManager?) -> Bool {
+        if manager?.anyAgentBusy == true { return false }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", #"i=0; while kill -0 "$1" 2>/dev/null; do i=$((i+1)); [ $i -gt 300 ] && exit 0; sleep 0.1; done; /usr/bin/open "$2""#,
+                       "jellyfish-relaunch", String(getpid()), Bundle.main.bundleURL.path]
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        AppLog.write("relaunch")
+        NSApp.terminate(nil)
+        return true
+    }
+
     /// ターミナルで上げるときのコマンド（許可を求める画面にそのまま出し、そのとおりに実行する）。
     /// ソースから入れていれば（scripts/install.sh が覚えた場所に git の checkout と scripts/update.sh があれば）ソースから
     /// （git pull --ff-only → scripts/install.sh）、そうでなければアプリの中の update.sh でリリース版に上げる

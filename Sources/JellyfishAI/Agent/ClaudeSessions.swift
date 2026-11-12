@@ -58,7 +58,8 @@ enum ClaudeSessions {
         let head = h.readData(ofLength: 96_000)
         var tail = Data()
         if size > 96_000 {
-            try? h.seek(toOffset: max(0, size - 160_000))
+            // size は符号なしなので、引き算の前に比べる（96KB〜160KB のときに引き算があふれてアプリが落ちていた）
+            try? h.seek(toOffset: size > 160_000 ? size - 160_000 : 0)
             tail = h.readDataToEndOfFile()
         }
         var title: String?

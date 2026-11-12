@@ -154,10 +154,13 @@ final class PermissionsWindowController: NSObject, NSWindowDelegate {
         signButton.action = #selector(fixSignature)
         signButton.bezelStyle = .rounded
         signButton.title = L("固定の署名にする…")
+        let reopen = NSButton(title: L("開き直す"), target: self, action: #selector(reopenApp))
+        reopen.bezelStyle = .rounded
+        reopen.toolTip = L("画面収録の許可は、システム設定でオンにしたあと Jellyfish AI を開き直すと効きます")
         let close = NSButton(title: L("閉じる"), target: self, action: #selector(closeWindow))
         close.bezelStyle = .rounded
         close.keyEquivalent = "\u{1b}"
-        let buttons = NSStackView(views: [grant, revoke, signButton, NSView(), close])
+        let buttons = NSStackView(views: [grant, revoke, signButton, NSView(), reopen, close])
         buttons.orientation = .horizontal
         buttons.spacing = 8
         views.append(buttons)
@@ -226,6 +229,7 @@ final class PermissionsWindowController: NSObject, NSWindowDelegate {
         } else {
             text += L("1. Jellyfish AI が許可を求めます。出てきた macOS の確認と、システム設定の画面で Jellyfish AI をオンにしてください") + "\n"
         }
+        text += L("画面収録は、オンにしたあと「開き直す」を押すと効きます（macOS は開き直すまで効かせません）。") + "\n"
         text += "\n" + L("フルディスクアクセスは確認が出ないので、システム設定の画面で Jellyfish AI をオンにします（要らなければオンにしなくて構いません）。付けた許可は、ここの「まとめて取り消す」でいつでも外せます。")
         a.informativeText = text
         a.addButton(withTitle: L("許可する"))
@@ -298,6 +302,13 @@ final class PermissionsWindowController: NSObject, NSWindowDelegate {
                     "printf '%s\\n\\n  %s\\n\\n' \(q("🪼 Jellyfish AI: " + L("あなたが許可したコマンドを実行します:"))) \(q(command))",
                     command].joined(separator: "\n") + "\n"
         return EngineLogin.openScript(text, name: name)
+    }
+
+    @objc private func reopenApp() {
+        guard AppUpdater.relaunch(manager: manager) else {
+            UpdateChecker.fallback(L("作業中のクラゲがいます。終わってからもう一度試してください。"), offerPage: false)
+            return
+        }
     }
 
     @objc private func closeWindow() { window.performClose(nil) }

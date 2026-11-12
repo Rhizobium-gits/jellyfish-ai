@@ -68,12 +68,10 @@ struct ScreenContext {
     /// 撮影。frontApp は「チャットを開く前に使っていたアプリ」（どの画面を撮るかとアプリ名に使う）
     static func capture(frontApp: NSRunningApplication?, target: ScreenTarget, into dir: URL) async -> ScreenContext {
         var ctx = ScreenContext(images: [], appName: frontApp?.localizedName, windowTitle: nil, note: nil)
-        if !CGPreflightScreenCaptureAccess() {
-            _ = CGRequestScreenCaptureAccess()   // 初回はシステムの許可ダイアログが出る
-            if !CGPreflightScreenCaptureAccess() {
-                ctx.note = L("画面収録の権限がないため画面を添付できませんでした（システム設定 > プライバシーとセキュリティ > 画面収録 で Jellyfish AI を許可）")
-                return ctx
-            }
+        // 確認を出すのは起動しているあいだに 1 回だけ（クラゲを足して指示するたびに確認が出ないように）
+        if !DesktopControl.requestScreenRecordingOnce() || !CGPreflightScreenCaptureAccess() {
+            ctx.note = L("画面収録の許可が効いていないため、画面を添付できませんでした。") + DesktopControl.screenRecordingHint
+            return ctx
         }
         let win = frontWindow(of: frontApp)
         ctx.windowTitle = win?.title

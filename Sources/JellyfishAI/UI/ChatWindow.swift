@@ -806,7 +806,10 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             guard let self else { return }
             self.capturing = false
             var p = prompt + ctx.promptSuffix
-            if let note = ctx.note { p += ScreenContext.marker + "\n" + note + L("（画像なしで進めてください）") }
+            if let note = ctx.note {
+                p += ScreenContext.marker + "\n" + note + L("（画像なしで進めてください）")
+                if !CGPreflightScreenCaptureAccess() { self.setInputHint(DesktopControl.screenRecordingHint) }
+            }
             AppLog.write("screen capture images=\(ctx.images.count) app=\(ctx.appName ?? "-") note=\(ctx.note ?? "-")")
             self.send(p)
         }

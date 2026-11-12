@@ -29,6 +29,21 @@ final class DesktopControl {
     static var hasAccessibility: Bool { AXIsProcessTrusted() }
     static var hasScreenRecording: Bool { CGPreflightScreenCaptureAccess() }
 
+    /// 画面収録の確認を、アプリを起動しているあいだに 1 回だけ出す（自動の撮影のたびに出さない）。
+    /// macOS は、画面収録をオンにしてもアプリを開き直すまで効かせないので、何度求めても同じ確認が出続けるだけになる
+    private static var askedScreenThisLaunch = false
+    static func requestScreenRecordingOnce() -> Bool {
+        if CGPreflightScreenCaptureAccess() { return true }
+        guard !askedScreenThisLaunch else { return false }
+        askedScreenThisLaunch = true
+        return CGRequestScreenCaptureAccess()
+    }
+
+    /// 画面収録が効いていないときに、チャットに出す一言
+    static var screenRecordingHint: String {
+        L("画面収録の許可が効いていません。システム設定でオンにしたあと、Jellyfish AI を開き直すと効きます（メニューバーのクラゲ › 🔐 権限 の「開き直す」）。オンなのに効かないときは、同じ画面の「まとめて許可する」で前の版の許可を消して付け直してください。")
+    }
+
     /// OS の確認ダイアログを出す（許可はユーザーがシステム設定で行う）
     static func requestPermissions() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary

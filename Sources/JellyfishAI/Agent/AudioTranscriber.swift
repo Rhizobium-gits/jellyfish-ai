@@ -45,10 +45,9 @@ final class AudioTranscriber: NSObject, SCStreamOutput, SCStreamDelegate, @unche
     }
 
     func start(language: String = "ja-JP") async throws {
-        guard CGPreflightScreenCaptureAccess() else {
-            _ = CGRequestScreenCaptureAccess()
+        guard DesktopControl.requestScreenRecordingOnce(), CGPreflightScreenCaptureAccess() else {
             throw NSError(domain: "Jellyfish", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                L("システムの音を拾うには画面収録の権限が必要です（システム設定 › プライバシーとセキュリティ › 画面収録 で Jellyfish AI を許可）")])
+                L("システムの音を拾うには画面収録の許可が必要です。") + DesktopControl.screenRecordingHint])
         }
         guard let loc = await AudioTranscriber.locale(preferred: language) else {
             throw NSError(domain: "Jellyfish", code: 2, userInfo: [NSLocalizedDescriptionKey: L("この Mac では音声の文字起こしに対応した言語が見つかりません")])
