@@ -14,6 +14,13 @@ enum AgentEvent {
 }
 
 /// ターンごとの実行オプション（クラゲごとにチャット画面から変えられる）
+/// モデルの名前として CLI に渡してよいか（英数字で始まり、英数字と . _ : / - だけ。「-」で始まるとオプションと読まれる）
+enum ModelName {
+    static func isSafe(_ m: String) -> Bool {
+        m.range(of: #"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"#, options: .regularExpression) != nil
+    }
+}
+
 struct AgentRunOptions {
     /// nil なら既定
     var model: String?

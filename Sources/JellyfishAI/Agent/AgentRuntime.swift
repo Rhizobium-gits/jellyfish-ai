@@ -229,11 +229,13 @@ final class AgentRuntime {
         // チームの受け渡し用のフォルダ（どの AI でも読み書きできるように渡す）
         opts.addDirs = extraDirs?() ?? []
         // 添付（画面の画像・落としたファイル・システムの音の文字起こし）を、どの AI でも読めるように
-        let files = AgentRuntime.attachedFiles(in: text)
+        // 仲間からの依頼の文（エージェントが書いたもの）にある「- /パス」は添付として扱わない
+        let files = text.hasPrefix(TeamCoordinator.requestMarker) ? [] : AgentRuntime.attachedFiles(in: text)
         switch backend.engine {
         case .codex:
             // Codex はファイルを読めても画像は見られないので、画像は --image で添える
-            opts.images = Array(files.filter { ChatMedia.imageExts.contains($0.pathExtension.lowercased()) }.prefix(8))
+            // --image はカンマで区切って読まれることがあるので、カンマの入った場所は渡さない
+            opts.images = Array(files.filter { ChatMedia.imageExts.contains($0.pathExtension.lowercased()) && !$0.path.contains(",") }.prefix(8))
         case .gemini:
             // Gemini はワークスペースの外のファイルを読めないので、このクラゲのデータフォルダの中の添付（画面の画像・文字起こし）の置き場所だけ足す
             let own = dir.standardizedFileURL.path + "/"

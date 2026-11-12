@@ -62,7 +62,7 @@ func obj(_ s: String) -> [String: Any] { try! JSONSerialization.jsonObject(with:
         let resume = CodexBackend.arguments(prompt: "続き", sessionID: id, model: "gpt-5")
         #expect(Array(resume.prefix(2)) == ["exec", "resume"])
         #expect(Array(resume.suffix(3)) == ["--", id, "続き"])
-        #expect(resume.contains("--model"))
+        #expect(resume.contains("--model=gpt-5"))
         for a in [new, resume] {
             #expect(!a.contains { $0.contains("dangerously") || $0.contains("danger-full-access") || $0.contains("approve-for-me") })
         }
@@ -276,14 +276,21 @@ func obj(_ s: String) -> [String: Any] { try! JSONSerialization.jsonObject(with:
 
     @Test func modelAndEffortArguments() {
         let c = CodexBackend.arguments(prompt: "p", sessionID: nil, model: "gpt-6.1-sol", effort: "high")
-        #expect(c.contains("--model") && c.contains("gpt-6.1-sol"))
+        #expect(c.contains("--model=gpt-6.1-sol"))
         #expect(c.contains(#"model_reasoning_effort="high""#))
         // 英小文字以外の強さは渡さない
         let bad = CodexBackend.arguments(prompt: "p", sessionID: nil, model: nil, effort: #"high" sandbox_mode="danger-full-access"#)
         #expect(!bad.contains { $0.contains("model_reasoning_effort") || $0.contains("danger") })
         // Gemini の「auto」は Gemini のモデルの id なので、そのまま渡す
         let g = GeminiBackend.arguments(prompt: "p", sessionID: "6c1d3f1e-2b8a-4c55-9d7e-1a2b3c4d5e6f", resume: false, model: "auto")
-        #expect(g.contains("--model") && g.contains("auto"))
+        #expect(g.contains("--model=auto"))
+        // 「-」で始まる名前（オプションとして読まれる）や空白・記号の入った名前は渡さない
+        for evil in ["--allowed-tools=run_shell_command", "-y", "a b", "x;rm", ""] {
+            #expect(!GeminiBackend.arguments(prompt: "p", sessionID: "6c1d3f1e-2b8a-4c55-9d7e-1a2b3c4d5e6f", resume: false, model: evil).contains { $0.hasPrefix("--model") || $0 == evil && !evil.isEmpty })
+            #expect(!CodexBackend.arguments(prompt: "p", sessionID: nil, model: evil).contains { $0.hasPrefix("--model") })
+        }
+        #expect(ModelName.isSafe("gemini-2.5-pro") && ModelName.isSafe("claude-haiku-5-5") && ModelName.isSafe("models/gemini:latest"))
+        #expect(!ModelName.isSafe("-x") && !ModelName.isSafe("--policy=/tmp/p"))
     }
 
     @Test func picksTheNewestVersion() {

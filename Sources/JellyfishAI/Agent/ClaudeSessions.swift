@@ -125,6 +125,8 @@ enum ClaudeSessions {
             guard let d = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   let type = d["type"] as? String, type == "user" || type == "assistant",
                   (d["isSidechain"] as? Bool) != true, (d["isMeta"] as? Bool) != true,
+                  // 会話の要約（モデルが書いたもの）は、ユーザーの発言として出さない
+                  (d["isCompactSummary"] as? Bool) != true, (d["isVisibleInTranscriptOnly"] as? Bool) != true,
                   let msg = d["message"] as? [String: Any] else { continue }
             let date = (d["timestamp"] as? String).flatMap { iso.date(from: $0) }
             if type == "user" {

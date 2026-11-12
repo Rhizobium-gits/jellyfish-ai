@@ -159,10 +159,27 @@ Only agents with **🖱 PC Control** turned on in the chat can control this Mac 
 - `screen_capture` (captures at 1 pixel = 1 point, so coordinates in the image are directly the click coordinates), `list_windows`, `ui_elements` (reads the positions of buttons and input fields through accessibility), `open_app`, `mouse_click`, `mouse_drag`, `scroll`, `type_text`, `press_keys`
 - Only one agent can control the Mac at a time. While it's in control, the edges of the screen glow in that agent's color, and **Esc stops it** (you can also stop it from “PC control” in the menu bar)
 - These tools aren't pre-approved; every call goes through Claude Code's Auto Mode safety checks. Agents are instructed not to enter passwords, make payments, send messages, or post publicly unless the user explicitly asks
-- Allow Jellyfish AI under **Accessibility** and **Screen Recording** in “System Settings › Privacy & Security”
+- It needs the **Accessibility** and **Screen Recording** permissions. “Grant All” in the menu bar jellyfish › **🔐 Permissions (Full Access)** sets them up together ([Grant or revoke macOS permissions all at once](#grant-or-revoke-macos-permissions-all-at-once))
 - The edges also glow while the tools that only read the screen (`screen_capture`, `list_windows`, `ui_elements`) are in use, and Esc stops them. `open_app` can only open http / https URLs
 - macOS permissions apply to the whole app, so even for agents with the switch off, commands that Claude Code runs (such as `screencapture`) can act within those permissions. Remove the permissions when you no longer use them
 - For Blender, if you've added the Blender MCP to Claude Code, agents can use it when your instruction says “Blender” ([External tools (MCP) only when named](#external-tools-mcp-only-when-named))
+
+### Grant or revoke macOS permissions all at once
+
+The menu bar jellyfish › **🔐 Permissions (Full Access)** lists the macOS permissions Jellyfish AI has and what each one lets it do (the scope of Full Access): Accessibility (clicks and typing for PC control), Screen Recording (screen attachments, PC control, 🎧), Full Disk Access (agents read and write Desktop, Documents, Downloads and so on without being asked each time), and Automation (controlling other apps with AppleScript and the like; macOS asks per app).
+
+- **Grant All**: clears the permissions that don't work right now with `tccutil reset` (Jellyfish AI's only), then Jellyfish AI asks for them and opens System Settings. You turn them on yourself (macOS doesn't let apps grant permissions to themselves, so Jellyfish doesn't)
+- **Revoke All**: turns off PC control for every jellyfish, stops 🎧 listening, then revokes all of Jellyfish AI's permissions (`tccutil reset All ai.jellyfish.desktop`; other apps' permissions aren't touched)
+- Both show the command in the confirmation dialog before you press it, and run exactly that in Terminal. You can do the same from the command line:
+
+```bash
+/Applications/JellyfishAI.app/Contents/Resources/permissions.sh grant    # clear stale permissions and ask again
+/Applications/JellyfishAI.app/Contents/Resources/permissions.sh revoke   # revoke all of Jellyfish AI's permissions
+/Applications/JellyfishAI.app/Contents/Resources/permissions.sh status   # the signature type, and the app's “🔐 Permissions” window
+```
+
+> [!NOTE]
+> **If it says “please allow” although the switch is on in System Settings, or asks for folder access on every launch or update**, that's because an ad-hoc signed copy was replaced. macOS identifies apps by their signature contents (cdhash), so after an update the permissions given to the previous version stop applying (while the switch stays on). Clear them and grant again with “Grant All”. If you installed from source, **“Use a Fixed Signature”** in the same window (`scripts/signing.sh create` → `scripts/install.sh`) keeps permissions across future updates.
 
 ### Listen (transcription, translation, meeting minutes)
 
@@ -293,6 +310,7 @@ A team lead (on any AI) can choose the AI for each teammate and split the work b
 - If the lead asks for an AI that can't be used (not installed, not signed in, or still on a pay-as-you-go API key), it gets the reason and the list of AIs it can use, and asks again with another one
 - **Passing data**: for each request to the lead, a **handoff folder** shared by the team is created (under `handoff/` in the data folder, readable only by you), and teammates on every AI are allowed to read and write it (Claude with `--add-dir`, Codex as a writable folder of its sandbox, Gemini with `--include-directories`). Large data and intermediate results go there as files, and requests and results carry their paths. Teammates ordered with `after` also get the earlier members' results in their request
 - Final deliverables are saved where you asked (such as the working folder). Handoff folders are removed at the end of the turn if empty, otherwise after 7 days
+- An agent working on a teammate's request doesn't create or ask teammates on a different AI (each AI has different safety mechanisms, so one AI isn't used to do what another isn't allowed to). Splitting work across AIs starts from the jellyfish you asked directly (the lead)
 - Each teammate's status line and title show its AI and model. You can see usage per AI under **📊 Usage** in the menu bar
 
 ### No surprise charges
@@ -381,7 +399,7 @@ scripts/install.sh          # build, install to the Applications folder, and lau
 
 - Because ⌘L is used globally, it conflicts with jumping to the address bar in browsers. While an app whose bundle ID is listed in `hotKeyPassthroughApps` in `settings.json` is in front, ⌘L is passed back to that app. If another app is already using ⌘L, it switches to ⌃⌥L
 - Quitting the app interrupts running agents (they're kept as “interrupted” at the next launch)
-- The released .app is ad-hoc signed, so when you replace it with a new version macOS treats it as a different app and asks again for folder (Desktop, Documents, …), Screen Recording and Accessibility access. For Screen Recording and Accessibility, remove Jellyfish AI (−) in System Settings once and allow it again
+- The released .app is ad-hoc signed, so when you replace it with a new version macOS treats it as a different app and asks again for folder (Desktop, Documents, …), Screen Recording and Accessibility access. Clear the stale permissions and grant them again with “Grant All” in the menu bar jellyfish › **🔐 Permissions (Full Access)**
 - If you install from source, create a Jellyfish-only signing certificate (self-signed) with `scripts/signing.sh create` first. `scripts/install.sh` then signs with it, and **a permission you grant once stays granted** even after rebuilding (and you won't be asked again each time you add a jellyfish). The private key is imported as non-exportable, and macOS asks you to confirm each time the key is used for signing. Check it with `scripts/signing.sh status`, remove it with `delete`
 
 ## Where data is stored

@@ -433,6 +433,7 @@ final class RecordingBackend: AgentBackend {
         p.arguments = [Self.root.appendingPathComponent("scripts/update.sh").path] + args
         var env = ProcessInfo.processInfo.environment
         env["JELLYFISH_RELEASE_JSON"] = json.path
+        env["JELLYFISH_UPDATE_TEST"] = "1"
         p.environment = env
         let out = Pipe()
         p.standardOutput = out
@@ -448,6 +449,12 @@ final class RecordingBackend: AgentBackend {
         let d = FileManager.default.temporaryDirectory.appendingPathComponent("jf-upd-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
+    }
+
+    @Test func ignoresTestOverridesOutsideTests() throws {
+        let script = try String(contentsOf: Self.root.appendingPathComponent("scripts/update.sh"), encoding: .utf8)
+        #expect(script.contains(#"if [[ "${JELLYFISH_UPDATE_TEST:-}" == 1 ]]; then REPO="${JELLYFISH_REPO:-$REPO}"; else unset JELLYFISH_RELEASE_JSON; fi"#))
+        #expect(script.contains("REPO=Rhizobium-gits/jellyfish-ai\n"))
     }
 
     @Test func reportsANewerRelease() throws {
@@ -512,14 +519,159 @@ final class RecordingBackend: AgentBackend {
         // ソースから入れていれば git pull → install.sh
         try FileManager.default.createDirectory(at: src.appendingPathComponent(".git"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: src.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        let gitConfig = src.appendingPathComponent(".git/config")
+        // 取り込み元が別のリポジトリなら使わない
+        try "[remote \"origin\"]\n\turl = https://github.com/someone/else.git\n".write(to: gitConfig, atomically: true, encoding: .utf8)
+        for d in [src, src.appendingPathComponent("scripts")] { try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: d.path) }
         let s = src.appendingPathComponent("scripts/update.sh")
         try "#!/bin/bash\n".write(to: s, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: s.path)
         try (src.path + "\n").write(to: data.appendingPathComponent("source-checkout"), atomically: true, encoding: .utf8)
+        #expect(AppUpdater.terminalCommand(dataDir: data, bundle: app)?.contains("--source") == false)
+        try "[remote \"origin\"]\n\turl = https://github.com/\(AppInfo.repo).git\n".write(to: gitConfig, atomically: true, encoding: .utf8)
         #expect(AppUpdater.terminalCommand(dataDir: data, bundle: app) == "cd '\(src.path)' && scripts/update.sh --source --yes")
-        // 覚えた場所が git の checkout でなければ使わない
+        // ほかの人も書き換えられるスクリプトなら使わない
+        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: s.path)
+        #expect(AppUpdater.terminalCommand(dataDir: data, bundle: app)?.contains("--source") == false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: s.path)
+        // 覚えた場所が git の checkout でなければ使わない（.git がただのファイルでも使わない）
         try FileManager.default.removeItem(at: src.appendingPathComponent(".git"))
+        try "gitdir: /tmp/x".write(to: src.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
         #expect(AppUpdater.terminalCommand(dataDir: data, bundle: app)?.contains("--source") == false)
         #expect(AppUpdater.terminalCommand(dataDir: data, bundle: d.appendingPathComponent("none.app")) == nil)
+    }
+}
+
+// 「🔐 権限」：まとめて許可・取り消し（tccutil と open は記録するだけの偽物に差し替える）
+@Suite struct PermissionsTests {
+    func runScript(_ args: [String]) throws -> (Int32, String, String) {
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("jf-perm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: d) }
+        let log = d.appendingPathComponent("calls.txt")
+        for name in ["tccutil", "open"] {
+            let f = d.appendingPathComponent(name)
+            try "#!/bin/bash\necho \"\(name) $*\" >> '\(log.path)'\n".write(to: f, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: f.path)
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = [UpdateScriptTests.root.appendingPathComponent("scripts/permissions.sh").path] + args
+        var env = ProcessInfo.processInfo.environment
+        env["JELLYFISH_BUNDLE_ID"] = "ai.jellyfish.desktop.test"
+        env["JELLYFISH_TCCUTIL"] = d.appendingPathComponent("tccutil").path
+        env["JELLYFISH_OPEN"] = d.appendingPathComponent("open").path
+        p.environment = env
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = out
+        try p.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(decoding: data, as: UTF8.self), (try? String(contentsOf: log, encoding: .utf8)) ?? "")
+    }
+
+    @Test func grantResetsOnlyThisAppsStaleEntries() throws {
+        let (rc, out, calls) = try runScript(["grant", "Accessibility", "ScreenCapture"])
+        #expect(rc == 0)
+        #expect(calls == "tccutil reset Accessibility ai.jellyfish.desktop.test\ntccutil reset ScreenCapture ai.jellyfish.desktop.test\nopen -g jellyfish://permissions?done=grant\n")
+        #expect(out.contains("tccutil reset Accessibility ai.jellyfish.desktop.test"))
+        // 何も付けなければ、扱うサービスすべて
+        let (_, _, all) = try runScript(["grant"])
+        #expect(all.components(separatedBy: "tccutil reset ").count - 1 == 7)
+        #expect(!all.contains("reset All"))
+    }
+
+    @Test func revokeResetsEverythingForThisAppOnly() throws {
+        let (rc, _, calls) = try runScript(["revoke"])
+        #expect(rc == 0)
+        #expect(calls == "tccutil reset All ai.jellyfish.desktop.test\nopen -g jellyfish://permissions?done=revoke\n")
+    }
+
+    @Test func refusesUnknownServices() throws {
+        let (rc, _, calls) = try runScript(["grant", "Accessibility", "All;rm"])
+        #expect(rc == 2)
+        #expect(calls.isEmpty)
+        let (rc2, _, _) = try runScript(["delete"])
+        #expect(rc2 == 2)
+    }
+
+    @Test func resetsOnlyWhatIsNotWorking() {
+        let s: [AppPermission: Bool?] = [.accessibility: false, .screenRecording: true, .fullDiskAccess: false, .automation: nil]
+        #expect(AppPermission.servicesToReset(s) == ["Accessibility", "SystemPolicyAllFiles", "SystemPolicyDesktopFolder",
+                                                     "SystemPolicyDocumentsFolder", "SystemPolicyDownloadsFolder"])
+        #expect(AppPermission.servicesToReset([.accessibility: true, .screenRecording: true, .fullDiskAccess: true, .automation: nil]).isEmpty)
+    }
+
+    @Test func commandIsQuotedAndFiltered() throws {
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("jf-permapp-\(UUID().uuidString)/Jelly fish.app")
+        let s = d.appendingPathComponent("Contents/Resources/permissions.sh")
+        try FileManager.default.createDirectory(at: s.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: d.deletingLastPathComponent()) }
+        try "#!/bin/bash\n".write(to: s, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: s.path)
+        #expect(AppPermission.command("grant", services: ["Accessibility", "x; rm -rf ~"], bundle: d) == "'\(s.path)' grant Accessibility")
+        #expect(AppPermission.command("revoke", bundle: d) == "'\(s.path)' revoke")
+        #expect(AppPermission.command("revoke", bundle: d.deletingLastPathComponent().appendingPathComponent("none.app")) == nil)
+    }
+
+    @Test func fullDiskAccessProbeOnlyOpensTheFile() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("jf-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(!AppPermission.hasFullDiskAccess(home: home))
+        let f = home.appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
+        try FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0]).write(to: f)
+        #expect(AppPermission.hasFullDiskAccess(home: home))
+    }
+
+    @Test func settingsLinksPointAtPrivacyPanes() {
+        for p in AppPermission.allCases {
+            #expect(p.settingsURL.absoluteString.hasPrefix("x-apple.systempreferences:com.apple.preference.security?Privacy_"))
+        }
+    }
+}
+
+@Suite struct ScriptHygieneTests {
+    /// bash は「$VAR」のすぐ後ろの全角文字を変数名の一部として読む（set -u だと落ちる）。${VAR} と書く
+    @Test func variablesBeforeFullWidthTextAreBraced() throws {
+        let dir = UpdateScriptTests.root.appendingPathComponent("scripts")
+        let files = (FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
+            .filter { $0.pathExtension == "sh" }
+        #expect(!files.isEmpty)
+        let re = try NSRegularExpression(pattern: #"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]"#)
+        for f in files {
+            let s = try String(contentsOf: f, encoding: .utf8)
+            let hits = re.matches(in: s, range: NSRange(s.startIndex..., in: s)).map { (s as NSString).substring(with: $0.range) }
+            #expect(hits.isEmpty, "\(f.lastPathComponent): \(hits)")
+        }
+    }
+}
+
+@Suite struct ReviewFixTests {
+    @Test func symlinkedThumbnailsMustPointAtImages() throws {
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("jf-link-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: d) }
+        let script = d.appendingPathComponent("run.command"), png = d.appendingPathComponent("real.png")
+        try "#!/bin/zsh\necho hi\n".write(to: script, atomically: true, encoding: .utf8)
+        try Data([0x89, 0x50]).write(to: png)
+        let fake = d.appendingPathComponent("report.png"), good = d.appendingPathComponent("chart.png")
+        try FileManager.default.createSymbolicLink(at: fake, withDestinationURL: script)
+        try FileManager.default.createSymbolicLink(at: good, withDestinationURL: png)
+        // 「report.png」という名前でもスクリプトを指していれば、表示も開くこともしない
+        #expect(ChatMedia.resolvedFile(fake.path) == nil)
+        #expect(!ChatMedia.fileOK(fake.path))
+        #expect(ChatMedia.refs(in: fake.path).isEmpty)
+        // 画像を指すリンクは、行き先の画像として扱う
+        #expect(ChatMedia.resolvedFile(good.path)?.lastPathComponent == "real.png")
+        #expect(ChatMedia.refs(in: good.path).first?.url.lastPathComponent == "real.png")
+        #expect(ChatMedia.resolvedFile(d.path) == nil)
+    }
+
+    @Test func typedTextStopsAtTheAttachmentSections() {
+        let p = "見て https://example.com" + AgentChatController.attachMarker + "\n- /tmp/a.png" + ScreenContext.marker + "\n- /tmp/s.png"
+        #expect(AgentChatController.typedText(p) == "見て https://example.com")
+        #expect(AgentChatController.typedText("  ただの指示  ") == "ただの指示")
     }
 }

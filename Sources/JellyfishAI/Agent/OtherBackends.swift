@@ -4,7 +4,8 @@ import Foundation
 /// - どちらも安全側の公式オプションだけを使う（危ない「全部許可」系は付けない）
 ///   Codex：サンドボックス workspace-write（作業フォルダの中だけ書ける・ネットワークなし）、承認は求めない（never）
 ///   Gemini：approval-mode auto_edit（作業フォルダの中の編集だけ自動承認。シェルのコマンドは実行されない）。フォルダの信頼の確認は飛ばさない
-/// - Jellyfish のチーム・PC 操作・自律組織（MCP）は Claude Code だけ。ここでは渡さない
+/// - Jellyfish のチームのツール（仲間を作る・頼む・自律組織）は MCP で渡す（Codex は enabled_tools、Gemini は includeTools と policy）。
+///   PC 操作のツールは Claude だけ（サーバー側の usesPCTools がエンジンも見る）
 /// - 子プロセスには API キーの環境変数を渡さない（BillingGuard）
 
 /// 子プロセスを起動して、標準出力を行ごとにパーサへ渡す（Claude Code と同じ流れ）
@@ -247,7 +248,8 @@ final class CodexBackend: AgentBackend {
                   "--config", "mcp_servers.jellyfish.startup_timeout_sec=20"]
         }
         if let ins = instructions, !ins.isEmpty { a += ["--config", "developer_instructions=" + toml(ins)] }
-        if let m = model, !m.isEmpty { a += ["--model", m] }
+        // 1 つの語として渡す（「-」で始まる名前はオプションと読まれるので、そもそも渡さない）
+        if let m = model, ModelName.isSafe(m) { a += ["--model=" + m] }
         // 考える強さ（カタログの supported_reasoning_levels にある名前だけ。英小文字以外は渡さない）
         if let e = effort, !e.isEmpty, e.allSatisfy({ $0.isLetter && $0.isLowercase && $0.isASCII }) {
             a += ["--config", "model_reasoning_effort=\"\(e)\""]
@@ -360,7 +362,7 @@ final class GeminiBackend: AgentBackend {
         // 受け渡し用のフォルダもワークスペースに入れる（その中の編集も auto_edit で通る）
         for d in addDirs { a += ["--include-directories", d.path] }
         a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
-        if let m = model, !m.isEmpty { a += ["--model", m] }
+        if let m = model, ModelName.isSafe(m) { a += ["--model=" + m] }
         a.append("--prompt=" + prompt)
         return a
     }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened Runtime の例外はこれだけ：ほかのアプリへ Apple Events（AppleScript など）を送るときに、
+	     macOS の「“〇〇”を制御しようとしています」の確認を出せるようにする（無いと確認も出ずに拒否される）。
+	     送ってよいかはアプリごとに本人が決める（システム設定 › プライバシーとセキュリティ › オートメーション） -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

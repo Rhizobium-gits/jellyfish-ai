@@ -49,6 +49,8 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 # コマンド 1 つで新しい版に上げるスクリプト（ソースが無くても /Applications/JellyfishAI.app/Contents/Resources/update.sh で使える）
 install -m 755 "$ROOT/scripts/update.sh" "$APP/Contents/Resources/update.sh"
+# macOS の許可をまとめて扱うスクリプト（アプリの「🔐 権限」からも使う）
+install -m 755 "$ROOT/scripts/permissions.sh" "$APP/Contents/Resources/permissions.sh"
 
 # アイコン：Resources/AppIcon.png（正方形の絵）を macOS のアイコンの角丸の枠に収める。無ければクラゲのドット絵を描く
 TMP="$(mktemp -d)"
@@ -67,13 +69,15 @@ rm -rf "$TMP"
 
 # 署名（Apple の開発者証明書なし。配布物は初回だけ「このまま開く」が必要）。
 # Hardened Runtime を付ける：このアプリはアクセシビリティ・画面収録の許可を持つので、DYLD_INSERT_LIBRARIES などで
-# 他のプログラムがこのプロセスに入り込み、その許可を使うことを OS に止めてもらう（追加の entitlement は無し）
+# 他のプログラムがこのプロセスに入り込み、その許可を使うことを OS に止めてもらう（entitlement は Apple Events の確認を出すためのものだけ）
 # --sign：scripts/signing.sh の証明書で署名する（macOS が署名のたびに確認する）。無い・使えないときはアドホック署名
 IDENTITY="${JELLYFISH_SIGN_IDENTITY:-Jellyfish AI Local Signing}"
 SIGNED_WITH="ad-hoc"
+# Hardened Runtime の例外は Apple Events の確認を出せるようにすることだけ（Resources/JellyfishAI.entitlements）
+ENTITLEMENTS="$ROOT/Resources/JellyfishAI.entitlements"
 IDS="$(security find-identity -p codesigning 2>/dev/null || true)"
 if [[ $SIGN == 1 && "$IDS" == *"\"$IDENTITY\""* ]]; then
-  if codesign --force --options runtime --sign "$IDENTITY" --timestamp=none "$APP" >/dev/null 2>&1; then
+  if codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" --timestamp=none "$APP" >/dev/null 2>&1; then
     SIGNED_WITH="$IDENTITY"
   else
     echo "「${IDENTITY}」で署名できませんでした（キーの確認を拒否した？）。アドホック署名にします" >&2
@@ -81,5 +85,5 @@ if [[ $SIGN == 1 && "$IDS" == *"\"$IDENTITY\""* ]]; then
 elif [[ $SIGN == 1 ]]; then
   echo "署名用の証明書「${IDENTITY}」がありません（scripts/signing.sh create で作れます）。アドホック署名にします" >&2
 fi
-[[ "$SIGNED_WITH" == "ad-hoc" ]] && codesign --force --options runtime --sign - --timestamp=none "$APP" >/dev/null
+[[ "$SIGNED_WITH" == "ad-hoc" ]] && codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - --timestamp=none "$APP" >/dev/null
 echo "Built: $APP  (v$VERSION build $BUILD_NUMBER, $(lipo -archs "$APP/Contents/MacOS/JellyfishAI"), signed: $SIGNED_WITH)"

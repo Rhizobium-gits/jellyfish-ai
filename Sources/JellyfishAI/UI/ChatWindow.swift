@@ -532,7 +532,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         enginePopup.selectItem(at: runtime.engine.flatMap { e in AgentEngine.allCases.firstIndex(of: e).map { $0 + 1 } } ?? 0)
         enginePopup.isEnabled = !running
         // モデルと強さ：AI ごとの選択肢（Codex・Gemini はそれぞれの CLI が出す一覧から）
-        if eng != .claude { manager?.refreshModels(eng) }
+        if eng != .claude, isVisible { manager?.refreshModels(eng) }
         let models = modelChoices(eng)
         if models.map(\.label) != shownModels.map(\.label) || models.map(\.value) != shownModels.map(\.value) {
             shownModels = models
@@ -652,11 +652,15 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                 }
             }
         }
+        // 自分が打った指示（Web のページを自動で読みに行ってよいのはこれだけ。仲間の依頼・要約などはエージェントが書いたもの）
+        let typed = Set(runtime.turns.filter { !$0.prompt.hasPrefix(TeamCoordinator.requestMarker) }
+            .map { AgentChatController.typedText($0.prompt) })
         for (index, m) in messages.enumerated() {
             switch m.role {
             case .user:
                 var text = m.text
                 var notes: [String] = []
+                let fromTeammate = text.hasPrefix(TeamCoordinator.requestMarker)
                 // 仲間のエージェントからの依頼（TeamCoordinator が付けた目印）
                 if text.hasPrefix(TeamCoordinator.requestMarker), let end = text.range(of: "]\n") {
                     let from = String(text[text.index(text.startIndex, offsetBy: TeamCoordinator.requestMarker.count)..<end.lowerBound])
@@ -685,7 +689,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                     out.append(NSAttributedString(string: n + "\n", attributes: [.font: NSFont.systemFont(ofSize: 11.5),
                                                                                     .foregroundColor: NSColor.secondaryLabelColor]))
                 }
-                appendMedia(attachedMedia + ChatMedia.refs(in: text), autoWeb: true, to: out)
+                let userTyped = !fromTeammate && typed.contains(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                appendMedia(attachedMedia + ChatMedia.refs(in: text), autoWeb: userTyped, to: out)
             case .assistant:
                 out.append(caption(((index < speakers.count ? speakers[index] : nil) ?? runtime.effectiveEngine).displayName, accent))
                 out.append(Markdown.render(m.text, size: 14))
@@ -725,6 +730,13 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     // MARK: 操作
 
     static let attachMarker = "\n\n---\n[添付ファイル]"
+
+    /// 指示のうち、本人が打った部分（添付・画面の欄の前まで）
+    static func typedText(_ prompt: String) -> String {
+        var t = prompt
+        for m in [attachMarker, ScreenContext.marker] { if let r = t.range(of: m) { t = String(t[..<r.lowerBound]) } }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private var history = PromptHistory()
 
@@ -954,10 +966,11 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             let a = NSAlert()
             a.messageText = L("PC 操作には macOS の許可が必要です")
             a.informativeText = L("「システム設定 › プライバシーとセキュリティ」の「アクセシビリティ」と「画面収録」で Jellyfish AI を許可してください（許可したあとアプリの再起動が必要なことがあります）。\n\n今の状態: %@", DesktopControl.permissionSummary)
+                + "\n\n" + L("システム設定でオンになっているのに使えないときは、前の版に付いた許可が残っています。「🔐 権限」の「まとめて許可する」で消して許可し直してください。")
                 + "\n\n" + DesktopControl.scopeNote
-            a.addButton(withTitle: L("許可の画面を開く"))
+            a.addButton(withTitle: L("🔐 権限の画面を開く"))
             a.addButton(withTitle: L("あとで"))
-            if a.runModal() == .alertFirstButtonReturn { DesktopControl.requestPermissions() }
+            if a.runModal() == .alertFirstButtonReturn { manager?.showPermissions() }
         }
         refresh()
     }
@@ -1039,10 +1052,17 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     /// 会話の中のリンク：「表紙を見る」なら読みに行く。ほかは標準どおり（ブラウザ・既定のアプリで開く）
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-        guard textView === transcript, let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:)),
-              url.scheme == ChatMediaCache.previewScheme else { return false }
-        ChatMediaCache.shared.allow(link: url)
-        return true
+        guard textView === transcript, let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:)) else { return false }
+        if url.scheme == ChatMediaCache.previewScheme {
+            ChatMediaCache.shared.allow(link: url)
+            return true
+        }
+        // ファイル：押したときにもう一度、行き先が画像・PDF のふつうのファイルかを確かめてから開く（描いたあとに差し替えられていても開かない）
+        if url.isFileURL {
+            if let f = ChatMedia.resolvedFile(url.path) { NSWorkspace.shared.open(f) } else { NSSound.beep() }
+            return true
+        }
+        return false
     }
 
     private func relayoutInput() {

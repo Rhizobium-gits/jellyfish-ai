@@ -35,7 +35,8 @@ enum ChatMedia {
             var p = ns.substring(with: m.range)
             if p.hasPrefix("~") { p = home + p.dropFirst() }
             guard p.hasPrefix("/"), fileExists(p) else { continue }
-            let url = URL(fileURLWithPath: p)
+            // リンク（シンボリックリンク）は行き先で扱う（「report.png」という名前で実はスクリプト、を開かない）
+            let url = resolvedFile(p) ?? URL(fileURLWithPath: p)
             add(Ref(kind: url.pathExtension.lowercased() == "pdf" ? .pdf : .image, url: url))
         }
         for m in urlMatches {
@@ -47,13 +48,15 @@ enum ChatMedia {
         return out
     }
 
-    static func fileOK(_ path: String) -> Bool {
-        let fm = FileManager.default
-        var dir: ObjCBool = false
-        guard fm.fileExists(atPath: path, isDirectory: &dir), !dir.boolValue,
-              let size = (try? fm.attributesOfItem(atPath: path)[.size] as? NSNumber)?.intValue, size <= maxFileBytes else { return false }
-        let ext = (path as NSString).pathExtension.lowercased()
-        return imageExts.contains(ext) || ext == "pdf"
+    static func fileOK(_ path: String) -> Bool { resolvedFile(path) != nil }
+
+    /// リンクをたどった先が、ふつうのファイルで、画像・PDF の拡張子で、50MB までならその場所
+    static func resolvedFile(_ path: String) -> URL? {
+        let u = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+        guard let v = try? u.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), v.isRegularFile == true,
+              (v.fileSize ?? Int.max) <= maxFileBytes else { return nil }
+        let ext = u.pathExtension.lowercased()
+        return imageExts.contains(ext) || ext == "pdf" ? u : nil
     }
 }
 

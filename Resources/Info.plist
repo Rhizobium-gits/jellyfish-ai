@@ -37,6 +37,8 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>エージェントがほかのアプリ（Finder・ブラウザなど）を操作するときに使います。送ってよいかはアプリごとに確認します。</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>「この画面」を参照する指示のときに、その時点の画面をエージェントに渡すために使います。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

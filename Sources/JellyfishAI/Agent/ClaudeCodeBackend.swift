@@ -65,7 +65,7 @@ final class ClaudeCodeBackend: AgentBackend {
         if install.supportsPermissionPrompts { args += ["--permission-prompts", "none"] }
         args += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
         // 「自動」は AgentRuntime が依頼ごとに選んだモデルに置き換えている。万一残っていても claude には渡さない
-        if let m = options.model ?? model, m != ModelRouter.auto { args += ["--model", m] }
+        if let m = options.model ?? model, m != ModelRouter.auto, ModelName.isSafe(m) { args += ["--model=" + m] }
         if let e = options.effort, install.supportsEffort { args += ["--effort", e] }
         // 外部の MCP サーバーを読み込まない（Jellyfish の --mcp-config だけになる）
         if options.strictMCPConfig, install.supportsStrictMCPConfig { args += ["--strict-mcp-config"] }

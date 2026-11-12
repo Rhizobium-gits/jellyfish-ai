@@ -548,7 +548,9 @@ final class TeamCoordinator {
         case .codex, .gemini:
             valid = EngineModelCatalog.shared.models(e).map(\.id)
             // 一覧をまだ読めていなければ、そのまま渡す（CLI が受け付けなければ、その仲間の結果にエラーが返る）
-            if valid.isEmpty { return (r, nil) }
+            if valid.isEmpty {
+                return ModelName.isSafe(r) ? (r, nil) : (nil, L("モデルの名前「%@」は使えません", r))
+            }
         }
         if let v = valid.first(where: { $0.lowercased() == r.lowercased() }) { return (v, nil) }
         return (nil, L("%@ のモデル「%@」はありません。選べるモデル: %@", e.displayName, r, valid.joined(separator: ", ")))
@@ -593,13 +595,27 @@ final class TeamCoordinator {
         guard let e = AgentEngine(rawValue: r) ?? aliases[r] else {
             return (nil, L("engine「%@」は分かりません（claude / codex / gemini）", r))
         }
-        let u = engineUsable(e, wait: true)
+        // ツールの呼び出しはメインスレッドで受けるので、ここでは CLI を動かして待たない（覚えている状態で決める）。
+        // まだ確かめていなければ裏で確かめ始めて通し、仲間が動くとき（preflight）にもう一度確かめる
+        if EngineAuth.shared.cached(e) == nil {
+            manager?.refreshEngineStatus([e])
+            return (e, nil)
+        }
+        let u = engineUsable(e, wait: false)
         return u.ok ? (e, nil) : (nil, L("%@ はいま使えません（%@）。使える AI で頼み直してください:\n%@", e.displayName, u.why, engineRoster()))
     }
 
     /// PC 操作のツールを渡すか：PC 操作がオンで、ユーザー本人が頼んだターン（仲間からの依頼ではない）のときだけ。
     /// 仲間は Web ページなどの文章に誘導されている（プロンプトインジェクション）かもしれないので、
     /// 1 体に PC 操作を許すとチーム全体に許したことになる、ということがないように
+    /// 仲間からの依頼で動いているターンでは、自分と違う AI の仲間を作ったり頼んだりしない（AI ごとに安全の仕組みが違うので、
+    /// サンドボックスの Codex やシェルの使えない Gemini が、別の AI を通して自分にできないことをさせないように）。
+    /// ユーザーが直接頼んだターンなら、どの AI の仲間でも作れる・頼める。違えば理由
+    func crossEngineDenied(caller: UUID, target: AgentEngine) -> String? {
+        guard running[caller] != nil, let c = controller(caller), let mine = manager?.runtime(for: c)?.effectiveEngine, mine != target else { return nil }
+        return L("仲間からの依頼で動いているときは、自分と違う AI（%@）の仲間を作ったり頼んだりできません。ユーザーが直接頼んだときだけです。同じ AI（%@）の仲間を使うか、そのまま結果を返してください。", target.displayName, mine.displayName)
+    }
+
     func usesPCTools(_ id: UUID, _ rt: AgentRuntime) -> Bool { rt.pcControl && running[id] == nil && rt.effectiveEngine.supportsJellyfishTools }
 
     /// いま仲間からの依頼で動いているなら、依頼元のエージェント
@@ -760,6 +776,7 @@ final class TeamCoordinator {
             members.append((n, role?.isEmpty == true ? nil : role, task, after))
             let (e, engineError) = requestedEngine(r["engine"])
             if let engineError { reply(engineError, true); return }
+            if let e, let why = crossEngineDenied(caller: caller, target: e) { reply(why, true); return }
             if let e { engines[n.lowercased()] = e }
             let (md, modelError) = requestedModel(r["model"], engine: e ?? (m.runtime(for: me)?.effectiveEngine ?? .claude))
             if let modelError { reply(modelError, true); return }
@@ -800,6 +817,10 @@ final class TeamCoordinator {
         for mb in members {
             if let c = mates.first(where: { $0.record.title.lowercased() == mb.name.lowercased() }) { targets[mb.name.lowercased()] = c }
         }
+        // 続けて使う仲間が自分と違う AI なら、仲間からの依頼で動いているときは頼まない（作る前に確かめる）
+        for (_, c) in targets {
+            if let e = m.runtime(for: c)?.effectiveEngine, let why = crossEngineDenied(caller: caller, target: e) { reply(why, true); return }
+        }
         var dissolved: [String] = []
         if (args["dissolve_others"] as? Bool) ?? true {
             dissolved = dissolveIdleOrgMembers(of: caller, keep: Set(targets.values.map(\.record.id)))
@@ -816,8 +837,9 @@ final class TeamCoordinator {
             link(caller, c.record.id)
             targets[mb.name.lowercased()] = c
         }
-        // 指定した AI・モデルにする（続けて使う仲間も。AI を変えるのは空いているときだけ＝新しい会話になる）
-        for (key, c) in targets {
+        // 指定した AI・モデルにする（続けて使う仲間も。AI を変えるのは空いているときだけ＝新しい会話になる）。
+        // ユーザーが自分で用意してつないだ仲間（form_team で作ったのではない）の AI・モデル・強さは変えない
+        for (key, c) in targets where c.record.orgSpawned == true {
             guard let rt = m.runtime(for: c) else { continue }
             if let e = engines[key], e != rt.effectiveEngine, !rt.isRunning { rt.changeEngine(e) }
             if let md = models[key] { rt.model = md }
@@ -1134,6 +1156,7 @@ final class TeamCoordinator {
                 fail(L("「%@」はチームにいません。仲間: %@", toName, names.isEmpty ? L("なし（create_teammate で作れます）") : names))
                 return
             }
+            if let e = m.runtime(for: target)?.effectiveEngine, let why = crossEngineDenied(caller: caller, target: e) { fail(why); return }
             let t = enqueue(from: caller, to: target.record.id, text: text)
             ok(["task_id": t.id, "to": target.record.title, "status": t.status.rawValue])
         case "create_teammate":
@@ -1148,6 +1171,7 @@ final class TeamCoordinator {
             let nm = m.uniqueName(String((raw.isEmpty ? L("仲間") : raw).prefix(24)))
             let (engine, engineError) = requestedEngine(args["engine"])
             if let engineError { fail(engineError); return }
+            if let engine, let why = crossEngineDenied(caller: caller, target: engine) { fail(why); return }
             let (model, modelError) = requestedModel(args["model"], engine: engine ?? (m.runtime(for: me)?.effectiveEngine ?? .claude))
             if let modelError { fail(modelError); return }
             let (effort, effortError) = TeamCoordinator.requestedEffort(args["effort"], engine: engine ?? (m.runtime(for: me)?.effectiveEngine ?? .claude), model: model)

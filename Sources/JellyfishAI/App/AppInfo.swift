@@ -118,7 +118,8 @@ enum UpdateChecker {
                 if let release {
                     var text = L("いまのバージョンは %@ です。「アップデートする」を押すと、GitHub のリリースから新しい版をダウンロードし、チェックサムと署名を確かめてから入れ替えて、開き直します（設定・クラゲ・会話はそのまま残ります）。", current)
                     if AppUpdater.isAdhoc(Bundle.main.bundleURL) {
-                        text += "\n\n" + L("いまの版は仮の署名（ad-hoc）なので、入れ替えたあと macOS に画面収録・アクセシビリティ・フォルダの許可をもう一度求められることがあります（システム設定で許可し直してください）。")
+                        text += "\n\n" + L("いまの版は仮の署名（ad-hoc）なので、入れ替えたあと macOS に画面収録・アクセシビリティ・フォルダの許可をもう一度求められることがあります（メニューバーのクラゲ › 🔐 権限 の「まとめて許可する」で許可し直せます）。")
+                        text += "\n" + L("また、確かめられるのは「壊れていない・このリポジトリの GitHub のリリースのとおり・中身が Jellyfish AI のその版」までで、作った人までは確かめられません（GitHub を信じることになります）。")
                     }
                     // ターミナルで上げるコマンド（ソースから入れていれば git pull → install.sh）
                     let command = AppUpdater.terminalCommand()

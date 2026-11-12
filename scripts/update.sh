@@ -15,7 +15,9 @@
 #   ・作業中のクラゲ（アプリの子プロセス）がいるときは入れ替えない。sudo は使わない
 set -euo pipefail
 
-REPO="${JELLYFISH_REPO:-Rhizobium-gits/jellyfish-ai}"
+REPO=Rhizobium-gits/jellyfish-ai
+# テストのときだけ（JELLYFISH_UPDATE_TEST=1）、取り込み元とリリースの情報を差し替えられる。ふだんは使わない
+if [[ "${JELLYFISH_UPDATE_TEST:-}" == 1 ]]; then REPO="${JELLYFISH_REPO:-$REPO}"; else unset JELLYFISH_RELEASE_JSON; fi
 BUNDLE_ID=ai.jellyfish.desktop
 CHECK=0 SOURCE=0 YES=0 OPEN=1 APP=""
 while [[ $# -gt 0 ]]; do
@@ -33,7 +35,7 @@ done
 
 # アプリの中から動かしたときは、入れ替えで自分が消えないよう、写しから動かし直す
 if [[ "$0" == *.app/Contents/* && -z "${JELLYFISH_UPDATE_COPY:-}" ]]; then
-  COPY="$(mktemp -t jellyfish-update).sh"
+  COPY="$(mktemp -t jellyfish-update)"
   cp "$0" "$COPY"
   chmod 700 "$COPY"
   ARGS=()
@@ -42,7 +44,7 @@ if [[ "$0" == *.app/Contents/* && -z "${JELLYFISH_UPDATE_COPY:-}" ]]; then
   [[ $YES == 1 ]] && ARGS+=(--yes)
   [[ $OPEN == 0 ]] && ARGS+=(--no-open)
   [[ -n "$APP" ]] && ARGS+=(--app "$APP")
-  JELLYFISH_UPDATE_COPY=1 exec /bin/bash "$COPY" ${ARGS[@]+"${ARGS[@]}"}
+  JELLYFISH_UPDATE_COPY="$COPY" exec /bin/bash "$COPY" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
 say() { printf '%s\n' "$*"; }
@@ -128,7 +130,9 @@ if [[ -d "$APP" && "$(plist_value "$APP/Contents/Info.plist" CFBundleIdentifier)
 fi
 
 WORK="$(mktemp -d -t jellyfish-update)"
-trap 'rm -rf "$WORK"' EXIT
+# 終わったら作業の場所と、アプリの中から動かしたときの写しを消す
+cleanup() { rm -rf "$WORK"; [[ -n "${JELLYFISH_UPDATE_COPY:-}" && -f "$JELLYFISH_UPDATE_COPY" ]] && rm -f "$JELLYFISH_UPDATE_COPY"; return 0; }
+trap cleanup EXIT
 J="$WORK/latest.json"
 if [[ -n "${JELLYFISH_RELEASE_JSON:-}" ]]; then
   cp "$JELLYFISH_RELEASE_JSON" "$J"   # テスト用
@@ -185,8 +189,10 @@ if [[ -d "$APP" ]]; then
   SIG="$(codesign -d --verbose=2 "$APP" 2>&1 || true)"
   if [[ "$SIG" == *$'\nAuthority='* ]]; then
     # いまの版が証明書で署名されていれば、同じ証明書の署名であること
-    DR="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => //p')"
-    [[ -n "$DR" ]] && { codesign --verify -R="$DR" "$NEW" 2>/dev/null || fail "いまの版と署名が違います（自分でビルドした版なら scripts/update.sh --source で上げてください）"; }
+    DR="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^#* *designated => //p' | head -1)"
+    # 読めなければ確かめたことにしない（入れ替えない）
+    [[ -n "$DR" ]] || fail "いまの版の署名の決まり（designated requirement）を読めません"
+    codesign --verify -R="$DR" "$NEW" 2>/dev/null || fail "いまの版と署名が違います（自分でビルドした版なら scripts/update.sh --source で上げてください）"
   fi
 fi
 
@@ -206,8 +212,8 @@ if [[ -d "$APP" ]]; then
   BAK="$WORK/previous.app"
   mv "$APP" "$BAK" 2>/dev/null || fail "いまの版を動かせません（macOS が止めた場合は、システム設定 › プライバシーとセキュリティ › アプリ管理 で、このターミナルを許可してください）"
   if ! mv "$NEW" "$APP"; then
-    mv "$BAK" "$APP" || fail "新しい版を置けず、元にも戻せませんでした。いまの版は $BAK にあります"
-    trap - EXIT
+    # 元に戻せなかったら、いまの版（${BAK}）を消さずに残す
+    mv "$BAK" "$APP" || { trap - EXIT; fail "新しい版を置けず、元にも戻せませんでした。いまの版は ${BAK} に残しています"; }
     fail "新しい版を置けませんでした。いまの版はそのままです"
   fi
 else

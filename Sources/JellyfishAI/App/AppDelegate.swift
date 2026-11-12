@@ -244,6 +244,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case "open":
             if let c = agent { manager.openChat(for: c, activate: automation) }
+        case "permissions":
+            // 「🔐 権限」の画面を出す（表示だけ。許可を求めるのは、本人がその画面で「まとめて許可する」を押したあとの続きだけ）
+            manager.showPermissions(done: param("done"))
         case "accounts":
             // 自動化（合言葉つき）のときだけ：アカウントと AI の画面
             manager.showAccounts()
@@ -269,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// jellyfish:// のどの操作を受け付けるか
 enum URLRoutes {
     /// 外から呼ばれても困らない操作（表示の切り替え・新しいクラゲ・チャットを開く・見た目）
-    static let publicRoutes: Set<String> = ["new", "toggle", "show", "hide", "arrange", "open", "style", "scale"]
+    static let publicRoutes: Set<String> = ["new", "toggle", "show", "hide", "arrange", "open", "style", "scale", "permissions"]
 
     static var automationEnabled: Bool { ProcessInfo.processInfo.environment["JELLYFISH_AUTOMATION"] == "1" }
 

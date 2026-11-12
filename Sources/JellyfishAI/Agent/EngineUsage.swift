@@ -20,10 +20,10 @@ enum CodexUsage {
     private static var cache: (CodexLimits?, Date)?
     private static let lock = NSLock()
 
-    /// いちばん新しい値（20 秒は覚えておく）
+    /// いちばん新しい値（1 分は覚えておく）
     static func latest(now: Date = Date()) -> CodexLimits? {
         lock.lock()
-        if let c = cache, now.timeIntervalSince(c.1) < 20 { lock.unlock(); return c.0 }
+        if let c = cache, now.timeIntervalSince(c.1) < 60 { lock.unlock(); return c.0 }
         lock.unlock()
         let v = read(home: home(), now: now)
         lock.lock(); cache = (v, now); lock.unlock()
@@ -48,18 +48,19 @@ enum CodexUsage {
             // 新しい日に見つかれば、それより前の日は見ない
             if !files.isEmpty { break }
         }
-        for (f, _) in files.sorted(by: { $0.1 > $1.1 }).prefix(5) {
+        // メニューを開くときに読むので、新しい 2 つのファイルの終わりだけ
+        for (f, _) in files.sorted(by: { $0.1 > $1.1 }).prefix(2) {
             if let v = lastLimits(in: f, now: now) { return v }
         }
         return nil
     }
 
-    /// ファイルの終わり（最大 1MB）から、いちばん後の rate_limits を読む
+    /// ファイルの終わり（最大 512KB）から、いちばん後の rate_limits を読む
     static func lastLimits(in file: URL, now: Date = Date()) -> CodexLimits? {
         guard let h = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? h.close() }
         let size = (try? h.seekToEnd()) ?? 0
-        let chunk: UInt64 = 1_000_000
+        let chunk: UInt64 = 512_000
         try? h.seek(toOffset: size > chunk ? size - chunk : 0)
         guard let data = try? h.readToEnd() else { return nil }
         let text = String(decoding: data, as: UTF8.self)

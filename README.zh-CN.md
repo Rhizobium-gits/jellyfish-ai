@@ -159,10 +159,27 @@
 - `screen_capture`（按 1 像素 = 1 点截屏，因此图像上的坐标就是点击坐标）、`list_windows`、`ui_elements`（通过辅助功能读取按钮和输入框的位置）、`open_app`、`mouse_click`、`mouse_drag`、`scroll`、`type_text`、`press_keys`
 - 同一时间只能有 1 个智能体操控。操控期间屏幕边缘会以该智能体的颜色发光，**按 Esc 停止**（也可以从菜单栏的“电脑操控”停止）
 - 这些工具不预先授权，每次都要经过 Claude Code Auto 模式的安全判定。已指示智能体：除非用户明确要求，否则不输入密码、不付款、不发送、不公开发帖等
-- 请在“系统设置 › 隐私与安全性”的 **辅助功能** 和 **屏幕录制** 中允许 Jellyfish AI
+- 需要 **辅助功能** 和 **屏幕录制** 权限。可以用菜单栏的水母 › **🔐 权限（Full Access）** 中的“全部允许”一次设置（[一次性授予或撤销 macOS 权限](#一次性授予或撤销-macos-权限)）
 - 使用只读取屏幕的工具（`screen_capture`、`list_windows`、`ui_elements`）期间，边缘也会发光，按 Esc 可停止。`open_app` 能打开的 URL 仅限 http / https
 - macOS 的权限作用于整个应用，因此即使是开关关闭的智能体，Claude Code 执行的命令（如 `screencapture`）也能在权限范围内运行。不再使用时请撤销权限
 - 如果在 Claude Code 中安装了 Blender 的 MCP，只要在指令中写上“Blender”，智能体就能使用它（[外部工具（MCP）仅在提到时加载](#外部工具mcp仅在提到时加载)）
+
+### 一次性授予或撤销 macOS 权限
+
+菜单栏的水母 › **🔐 权限（Full Access）** 中列出了 Jellyfish AI 拥有的 macOS 权限，以及授予后能做什么（Full Access 的范围）：辅助功能（电脑操控的点按和输入）、屏幕录制（屏幕附加、电脑操控、🎧）、完全磁盘访问权限（智能体无需每次询问即可读写桌面、文稿、下载等）、自动化（通过 AppleScript 等操控其他应用；macOS 会逐个应用确认）。
+
+- **全部允许**：先用 `tccutil reset` 清除当前未生效的权限（仅限 Jellyfish AI），然后 Jellyfish AI 请求权限并打开系统设置。由你本人打开开关（macOS 不允许应用自行授予权限，Jellyfish 也不会这样做）
+- **全部撤销**：关闭所有水母的电脑操控、停止 🎧 聆听，然后撤销 Jellyfish AI 的全部权限（`tccutil reset All ai.jellyfish.desktop`；不触及其他应用的权限）
+- 两者都会在点按前的确认对话框中显示要执行的命令，并在终端中原样执行。也可以用命令完成同样的操作：
+
+```bash
+/Applications/JellyfishAI.app/Contents/Resources/permissions.sh grant    # 清除失效的旧权限并重新请求
+/Applications/JellyfishAI.app/Contents/Resources/permissions.sh revoke   # 撤销 Jellyfish AI 的全部权限
+/Applications/JellyfishAI.app/Contents/Resources/permissions.sh status   # 签名类型，以及应用的“🔐 权限”窗口
+```
+
+> [!NOTE]
+> **系统设置中的开关明明打开却仍提示“请允许”、每次启动或更新都询问文件夹权限**，是因为替换了临时签名（ad-hoc）的版本。macOS 按签名内容（cdhash）识别应用，更新后授予旧版本的权限就不再生效（开关仍保持打开）。请用“全部允许”清除并重新授予。如果是从源代码安装的，用同一窗口中的 **“使用固定签名”**（`scripts/signing.sh create` → `scripts/install.sh`），之后的更新中权限也会保留。
 
 ### 收听（转写、翻译、会议纪要）
 
@@ -293,6 +310,7 @@ flowchart LR
 - 如果指定了无法使用的 AI（未安装、未登录或仍是 API 密钥按量计费），带队者会收到原因和可用 AI 的列表，并改用其他 AI 重新委托
 - **数据交接**：每次给带队者的委托都会创建团队共享的 **交接文件夹**（数据文件夹的 `handoff/` 下，只有你本人可以打开），并允许任何 AI 的队友读写（Claude 用 `--add-dir`，Codex 作为沙盒的可写文件夹，Gemini 用 `--include-directories`）。大量数据和中间成果以文件形式放在这里，委托和结果中写明路径。用 `after` 排好顺序的队友，委托中也会附上前一位的结果
 - 最终成果会保存到你要求的位置（如工作文件夹）。交接文件夹如果为空会在该轮结束时清理，用过的会在 7 天后清理
+- 正在处理队友委托的智能体，不会创建或委托与自己不同 AI 的队友（各 AI 的安全机制不同，避免借助别的 AI 去做自己不被允许的事）。跨 AI 分工从你直接委托的水母（带队者）开始
 - 队友的状态栏和标题会显示它的 AI 和模型。可以在菜单栏的 **📊 用量** 中按 AI 查看用量
 
 ### 不会擅自收费
@@ -381,7 +399,7 @@ scripts/install.sh          # 构建后放入应用程序文件夹并启动
 
 - ⌘L 是全局使用的，因此会与浏览器跳转到地址栏的快捷键冲突。当 `settings.json` 的 `hotKeyPassthroughApps` 中写入了 bundle ID 的应用位于前台时，⌘L 会交还给该应用。如果其他应用已先占用 ⌘L，则改用 ⌃⌥L
 - 退出应用后，正在运行的智能体会被中断（下次启动时会以“中断”保留下来）
-- 发布的 .app 是 ad-hoc 签名，换成新版本后 macOS 会把它视为另一个应用，并再次请求文件夹（桌面、文稿等）、屏幕录制和辅助功能的权限。屏幕录制和辅助功能请在系统设置中先移除（−）Jellyfish AI，再重新允许
+- 发布的 .app 是 ad-hoc 签名，换成新版本后 macOS 会把它视为另一个应用，并再次请求文件夹（桌面、文稿等）、屏幕录制和辅助功能的权限。请用菜单栏的水母 › **🔐 权限（Full Access）** 中的“全部允许”清除旧权限并重新授予
 - 如果从源码安装，先用 `scripts/signing.sh create` 创建 Jellyfish 专用的签名证书（自签名），`scripts/install.sh` 就会用它签名，即使重新构建，**允许过一次的权限也会一直有效**（添加水母时也不会每次都询问）。私钥以不可导出的方式导入，每次用它签名时 macOS 都会请求确认。用 `scripts/signing.sh status` 查看，用 `delete` 删除
 
 ## 数据存储位置

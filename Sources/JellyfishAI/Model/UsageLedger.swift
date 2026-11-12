@@ -105,7 +105,7 @@ final class UsageLedger {
         let rows = counts.map { Stored(key: $0.key, count: $0.value) }
         let url = self.url
         queue.sync {
-            if let d = try? JSONEncoder().encode(rows) { try? d.write(to: url, options: .atomic) }
+            if let d = try? JSONEncoder().encode(rows) { try? d.write(to: url, options: .atomic); try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
         }
     }
 }

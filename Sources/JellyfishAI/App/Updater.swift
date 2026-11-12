@@ -114,6 +114,34 @@ enum AppUpdater {
     }
 }
 
+/// scripts/install.sh が覚えたソースのフォルダ（データフォルダの source-checkout）。
+/// そのフォルダのスクリプトをターミナルで動かすので、次をすべて満たすときだけ使う：
+/// git の checkout（.git がフォルダ）で取り込み元がこのリポジトリ、フォルダとスクリプトが自分のもので、ほかの人が書き換えられない
+enum SourceCheckout {
+    static func validated(dataDir: URL = AppPaths.dataDir, needs scripts: [String] = ["update.sh"]) -> String? {
+        guard let raw = try? String(contentsOf: dataDir.appendingPathComponent("source-checkout"), encoding: .utf8) else { return nil }
+        let dir = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard dir.hasPrefix("/"), !dir.contains("\n"),
+              fm.fileExists(atPath: dir + "/.git", isDirectory: &isDir), isDir.boolValue,
+              let config = try? String(contentsOfFile: dir + "/.git/config", encoding: .utf8),
+              config.contains("github.com/\(AppInfo.repo)") || config.contains("github.com:\(AppInfo.repo)") else { return nil }
+        func mine(_ p: String) -> Bool {
+            guard let a = try? fm.attributesOfItem(atPath: p),
+                  (a[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
+                  let perm = (a[.posixPermissions] as? NSNumber)?.intValue else { return false }
+            return perm & 0o022 == 0
+        }
+        guard mine(dir), mine(dir + "/scripts") else { return nil }
+        for s in scripts {
+            let p = dir + "/scripts/" + s
+            guard fm.isExecutableFile(atPath: p), mine(p) else { return nil }
+        }
+        return dir
+    }
+}
+
 extension AppUpdater {
     /// ターミナルで上げるときのコマンド（許可を求める画面にそのまま出し、そのとおりに実行する）。
     /// ソースから入れていれば（scripts/install.sh が覚えた場所に git の checkout と scripts/update.sh があれば）ソースから
@@ -121,11 +149,8 @@ extension AppUpdater {
     static func terminalCommand(dataDir: URL = AppPaths.dataDir, bundle: URL = Bundle.main.bundleURL) -> String? {
         let q = EngineLogin.shellQuote
         let fm = FileManager.default
-        if let raw = try? String(contentsOf: dataDir.appendingPathComponent("source-checkout"), encoding: .utf8) {
-            let dir = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if dir.hasPrefix("/"), fm.fileExists(atPath: dir + "/.git"), fm.isExecutableFile(atPath: dir + "/scripts/update.sh") {
-                return "cd \(q(dir)) && scripts/update.sh --source --yes"
-            }
+        if let dir = SourceCheckout.validated(dataDir: dataDir) {
+            return "cd \(q(dir)) && scripts/update.sh --source --yes"
         }
         let script = bundle.appendingPathComponent("Contents/Resources/update.sh")
         guard bundle.pathExtension == "app", fm.isExecutableFile(atPath: script.path) else { return nil }

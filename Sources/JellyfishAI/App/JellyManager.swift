@@ -845,8 +845,11 @@ final class JellyManager {
             // 仲間は、指定がなければ作った側と同じ AI で動く（AI ごとの得意なことで分担するときは engine を指定）
             rt.changeEngine(engine ?? prt.effectiveEngine)
             rt.changeFolder(prt.cwd)
-            rt.model = prt.model
-            rt.effort = prt.effort
+            // モデル・強さは AI ごとに名前が違うので、同じ AI のときだけ受け継ぐ（Claude の「max」を Codex に渡さない）
+            if rt.effectiveEngine == prt.effectiveEngine {
+                rt.model = prt.model
+                rt.effort = prt.effort
+            }
         }
         c.show(animated: true)
         save()
@@ -1079,6 +1082,24 @@ final class JellyManager {
     }
 
     /// アプリ終了時：実行中のエージェントを中断して記録を残す
+    /// 「🔐 権限」の画面。done は permissions.sh から（grant = 古い許可を消し終わった）
+    private var permissionsWindow: PermissionsWindowController?
+    func showPermissions(done: String? = nil) {
+        let w = permissionsWindow ?? PermissionsWindowController(manager: self)
+        permissionsWindow = w
+        if done == "grant" { w.grantFinished() } else { w.show() }
+    }
+
+    /// まとめて取り消す前に：すべてのクラゲの PC 操作をオフにし、操作中なら止め、🎧 の聞き取りを止める
+    func disableAllPrivileges() {
+        if let d = DesktopControl.shared.driver { DesktopControl.shared.release(d) }
+        for rt in runtimes.values where rt.pcControl { rt.pcControl = false }
+        for rt in detached where rt.pcControl { rt.pcControl = false }
+        if let cur = listener, let c = controllers.first(where: { $0.record.id == cur.agent }) { toggleListening(c) }
+        for (_, chat) in chats { chat.refresh() }
+        AppLog.write("privileges disabled (pc control off, listening stopped)")
+    }
+
     /// 作業中のクラゲがいるか（アップデートで入れ替える前に確かめる）
     var anyAgentBusy: Bool { runtimes.values.contains { $0.isRunning } || detached.contains { $0.isRunning } }
 

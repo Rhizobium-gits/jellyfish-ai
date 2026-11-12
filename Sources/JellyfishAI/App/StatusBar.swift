@@ -460,9 +460,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         pcm.addItem(.header(L("・クリックや入力は毎回 Claude Code の安全判定を通る")))
         pcm.addItem(.header(L("・macOS の許可はアプリ全体に付く（オフのエージェントのコマンドも、")))
         pcm.addItem(.header(L("　許可の範囲で画面の撮影やキー入力の合成ができる。止めるのは Claude Code の安全判定）")))
-        pcm.addItem(ClosureMenuItem(L("許可の画面を開く…")) { DesktopControl.requestPermissions() })
+        pcm.addItem(ClosureMenuItem(L("🔐 許可をまとめて設定・取り消す…")) { [weak self] in self?.manager.showPermissions() })
         pcItem.submenu = pcm
         menu.addItem(pcItem)
+        // macOS の許可（Full Access の範囲と、いま付いている許可）を見て、まとめて許可・取り消す
+        menu.addItem(ClosureMenuItem(L("🔐 権限（Full Access）…")) { [weak self] in self?.manager.showPermissions() })
 
         // エージェント同士の分業
         let teamItem = NSMenuItem(title: L("チーム（分業）"), action: nil, keyEquivalent: "")

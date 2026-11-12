@@ -40,11 +40,16 @@ enum EngineModels {
     static func fetch(_ e: AgentEngine, cli: URL) -> [EngineModel]? {
         switch e {
         case .codex:
-            guard let out = CLILocator.run(cli, ["debug", "models"], timeout: 30, mergeStderr: false) else { return nil }
+            // 古い版に「debug models」が無ければ呼ばない（--help は指示として送られない）
+            guard (CLILocator.run(cli, ["debug", "--help"], timeout: 15) ?? "").contains("models"),
+                  let out = CLILocator.run(cli, ["debug", "models"], timeout: 30, mergeStderr: false) else { return nil }
             let m = parseCodex(Data(out.utf8))
             return m.isEmpty ? nil : m
         case .gemini:
-            guard let out = CLILocator.run(cli, ["models", "--output-format", "json"], timeout: 40, mergeStderr: false) else { return nil }
+            // 「models」コマンドの無い版では「gemini models」が指示（プロンプト）として送られかねないので、
+            // まず --help（指示としては送られない）で、そのコマンドがあることを確かめる
+            guard (CLILocator.run(cli, ["models", "--help"], timeout: 20) ?? "").contains("gemini models"),
+                  let out = CLILocator.run(cli, ["models", "--output-format", "json"], timeout: 40, mergeStderr: false) else { return nil }
             // 前に警告などの行が付くことがあるので、最初の「[」から読む
             guard let i = out.firstIndex(of: "[") else { return nil }
             let m = parseGemini(Data(out[i...].utf8))
@@ -57,6 +62,7 @@ enum EngineModels {
 
 /// モデルの一覧を覚えておく（エンジンごと）
 final class EngineModelCatalog {
+    private var failedAt: [AgentEngine: Date] = [:]
     static let shared = EngineModelCatalog()
     private var cache: [AgentEngine: (models: [EngineModel], at: Date)] = [:]
     private var loading = Set<AgentEngine>()
@@ -83,16 +89,19 @@ final class EngineModelCatalog {
         guard e != .claude else { return }
         lock.lock()
         let fresh = cache[e].map { Date().timeIntervalSince($0.at) < 86_400 } ?? false
-        if (fresh && !force) || loading.contains(e) { lock.unlock(); return }
+        // 読めなかったら 1 時間は読み直さない（失敗のたびに知らせて読み直す繰り返しにならないように）
+        let backoff = failedAt[e].map { Date().timeIntervalSince($0) < 3600 } ?? false
+        if (fresh && !force) || (backoff && !force) || loading.contains(e) { lock.unlock(); return }
         loading.insert(e)
         lock.unlock()
         DispatchQueue.global(qos: .utility).async {
             let found = cli().flatMap { EngineModels.fetch(e, cli: $0) }
             self.lock.lock()
             self.loading.remove(e)
-            if let found { self.cache[e] = (found, Date()) }
+            if let found { self.cache[e] = (found, Date()); self.failedAt[e] = nil } else { self.failedAt[e] = Date() }
             self.lock.unlock()
-            if let found, let d = try? JSONEncoder().encode(Stored(models: found, at: Date())) { try? d.write(to: self.file(e), options: .atomic) }
+            guard let found else { return }
+            if let d = try? JSONEncoder().encode(Stored(models: found, at: Date())) { try? d.write(to: self.file(e), options: .atomic) }
             DispatchQueue.main.async { self.onChange?() }
         }
     }
