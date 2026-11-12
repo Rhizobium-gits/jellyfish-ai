@@ -3,6 +3,8 @@
 # Command Line Tools だけの環境では Swift Testing の置き場所を swift test が見つけないので、場所を教える。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# テスト中のログやデータは使い捨てのフォルダへ（普段の ~/Library/Application Support/JellyfishAI に書かない）
+export JELLYFISH_DATA_DIR="$(mktemp -d)/data"
 DEV="$(xcode-select -p 2>/dev/null || true)"
 if [[ "$DEV" == *CommandLineTools* ]]; then
   D="$DEV/Library/Developer"
