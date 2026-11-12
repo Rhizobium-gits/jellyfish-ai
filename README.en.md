@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  A macOS app where AI agents live on your desktop, each one running as an independent AI agent (Claude Code).<br>
+  A macOS app where AI agents live on your desktop, each one running as an independent AI agent（Claude Code・Codex・Gemini）.<br>
   Press ⌘L, type, and watch it think, work and finish.
 </p>
 
