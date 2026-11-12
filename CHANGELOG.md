@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-11-12
+
+### 変更
+
+- **ダウンロード数を GitHub で追える**：リリースの .dmg をどの版も `JellyfishAI.dmg` という同じ名前にし、README の「ダウンロード」を `releases/latest/download/JellyfishAI.dmg`（いつも最新版のファイル）への直リンクにした。README の上に .dmg のダウンロード数のバッジ。`scripts/downloads.sh` でリリースごと・ファイルごとの数（.dmg = ダウンロードして入れた回数、.zip = アプリ内のアップデートなど）と、`--traffic` で直近 14 日の閲覧数・clone 数。.zip は版つきのまま（アプリのアップデートが版で選ぶ）
+- リリースノートのインストールの手順を、Claude だけでなく使う AI（Claude Code・Codex CLI・Gemini CLI）にログインする書き方にした
+
 ## [1.0.6] - 2026-11-12
 
 ### 追加
@@ -162,6 +169,7 @@
 - 長い会話を開いているとき、更新のたびにセッションのファイル全体を読み直していた（増えた分だけ読む）
 - Claude Code をあとから入れても、アプリを再起動するまで見つけられなかった
 
+[1.0.7]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.7
 [1.0.6]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.6
 [1.0.5]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.4

@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://github.com/Rhizobium-gits/jellyfish-ai/actions/workflows/ci.yml"><img src="https://github.com/Rhizobium-gits/jellyfish-ai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest"><img src="https://img.shields.io/github/v/release/Rhizobium-gits/jellyfish-ai" alt="Release"></a>
+  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases"><img src="https://img.shields.io/github/downloads/Rhizobium-gits/jellyfish-ai/JellyfishAI.dmg?label=dmg%20downloads" alt="dmg downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-lightgrey" alt="macOS 14+">
 </p>
@@ -21,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest"><b>⬇︎ Download (.dmg)</b></a>
+  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest/download/JellyfishAI.dmg"><b>⬇︎ Download (.dmg)</b></a>
   &nbsp;·&nbsp; <a href="#download-and-install">Install</a>
   &nbsp;·&nbsp; <a href="#how-to-launch">How to launch</a>
   &nbsp;·&nbsp; <a href="#getting-started">Getting started</a>
@@ -50,13 +51,13 @@
 1. **Install the CLI of the AI you want to use**
    Install Claude Code, Codex CLI or Gemini CLI by following its official guide. If you use the Claude Code extension for VS Code / Cursor, the `claude` bundled with the extension works as is. You can sign in from the “Accounts & AI” screen that appears the first time you launch the app (AIs you install later can be signed in from the menu bar jellyfish › 🔑 Accounts & AI). An AI that isn't installed yet can be installed from its official package and signed in, right from that screen or the menu (“Install & sign in…”), once you allow it
 2. **Download**
-   Download `JellyfishAI-<version>.dmg` from [the latest release](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) (there's also a `.zip` with the same contents)
+   **[Download JellyfishAI.dmg](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest/download/JellyfishAI.dmg)** (always the latest version; the same file is on [the latest release](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) page, along with a `.zip` with the same contents)
 3. **Move it to the Applications folder**
    Open the .dmg and drag **JellyfishAI** onto the **Applications** folder next to it
 4. **Click “Open Anyway” the first time only**
    The first time you open JellyfishAI from the Applications folder, macOS stops it, saying it can't be opened (because it's a personal project that hasn't been notarized by Apple). Close the dialog and click “Open Anyway” near the bottom of **System Settings › Privacy & Security**. From the second time on, it opens normally
 
-To check that the download isn't corrupted, compare the output of `shasum -a 256 JellyfishAI-<version>.dmg` with `SHA256SUMS.txt` from the same release.
+To check that the download isn't corrupted, compare the output of `shasum -a 256 JellyfishAI.dmg` with `SHA256SUMS.txt` from the same release.
 
 > [!IMPORTANT]
 > Agents create, edit and delete files and run commands **without asking** (Claude Code's Auto mode and the like; each AI's own safety features stop dangerous operations). The working folder is your home folder by default. For details, see [Permissions and safety](#permissions-and-safety) and [SECURITY.md](SECURITY.md).
@@ -343,6 +344,7 @@ scripts/install.sh          # build, install to the Applications folder, and lau
 - To build only, use `scripts/build.sh` (→ `dist/JellyfishAI.app`, for this Mac's CPU); to run the tests, use `scripts/test.sh` (swift test)
 - The app icon is made by fitting `Resources/AppIcon.png` (a 1024px square) into the rounded frame of macOS icons. Replace it and rebuild to change the icon
 - Distribution files are made in `dist/release/` with `scripts/release.sh` (universal .dmg, .zip, SHA256SUMS.txt). Update `VERSION` and `CHANGELOG.md`, commit and push, then publish to GitHub Releases with `scripts/release.sh --publish`
+- **Download counts**: `scripts/downloads.sh` reads per-release counts from GitHub (`.dmg` = downloads from the README or the release page to install, `.zip` = the app's “Update” and manual .zip downloads; `--traffic` adds page views and clones for the last 14 days, `--json` prints JSON). The badge at the top of the README is the total download count of `JellyfishAI.dmg`. Every version's .dmg has the same name, `JellyfishAI.dmg`, so `releases/latest/download/JellyfishAI.dmg` always points at the latest version and the count stays in one place (up to 1.0.5 the names had the version in them; those are included in `scripts/downloads.sh`). GitHub counts repeat downloads by the same person, and doesn't count clones or source zips
 
 ## Permissions and safety
 

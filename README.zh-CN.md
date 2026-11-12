@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://github.com/Rhizobium-gits/jellyfish-ai/actions/workflows/ci.yml"><img src="https://github.com/Rhizobium-gits/jellyfish-ai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest"><img src="https://img.shields.io/github/v/release/Rhizobium-gits/jellyfish-ai" alt="Release"></a>
+  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases"><img src="https://img.shields.io/github/downloads/Rhizobium-gits/jellyfish-ai/JellyfishAI.dmg?label=%E4%B8%8B%E8%BD%BD%E6%AC%A1%E6%95%B0" alt="下载次数"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-lightgrey" alt="macOS 14+">
 </p>
@@ -21,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest"><b>⬇︎ 下载（.dmg）</b></a>
+  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest/download/JellyfishAI.dmg"><b>⬇︎ 下载（.dmg）</b></a>
   &nbsp;·&nbsp; <a href="#下载与安装">安装</a>
   &nbsp;·&nbsp; <a href="#启动方法">启动方法</a>
   &nbsp;·&nbsp; <a href="#快速上手">快速上手</a>
@@ -50,13 +51,13 @@
 1. **安装要使用的 AI 的 CLI**
    按照各自的官方说明安装 Claude Code、Codex CLI 或 Gemini CLI。如果你在用 VS Code / Cursor 的 Claude Code 扩展，可以直接使用扩展内置的 `claude`。首次启动时出现的“账户与 AI”界面可以用来登录（之后安装的 AI 也可以在菜单栏的水母 › 🔑 账户与 AI 中登录）。尚未安装的 AI，也可以在该界面或菜单的“安装并登录…”中，经你允许后安装官方软件包并直接进入登录
 2. **下载**
-   从 [Releases 的最新版本](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) 下载 `JellyfishAI-<版本>.dmg`（也提供 `.zip`，内容相同）
+   **[下载 JellyfishAI.dmg](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest/download/JellyfishAI.dmg)**（始终是最新版本。也可以在 [Releases 的最新版本](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) 页面获取同一文件，另有内容相同的 `.zip`）
 3. **放进应用程序文件夹**
    打开 .dmg，把 **JellyfishAI** 拖到旁边的 **Applications**（应用程序）
 4. **仅首次需要“仍要打开”**
    打开应用程序文件夹中的 JellyfishAI 时，macOS 仅在首次会拦下并提示“无法打开”（因为这是未经 Apple 公证的个人开发作品）。请关闭对话框，在 **系统设置 › 隐私与安全性** 靠下的位置点按“仍要打开”。从第二次起就可以正常打开
 
-可以将同一发布中的 `SHA256SUMS.txt` 与 `shasum -a 256 JellyfishAI-<版本>.dmg` 的结果对照，确认下载的文件是否完好。
+可以将同一发布中的 `SHA256SUMS.txt` 与 `shasum -a 256 JellyfishAI.dmg` 的结果对照，确认下载的文件是否完好。
 
 > [!IMPORTANT]
 > 智能体会 **不经确认** 地创建、编辑、删除文件和执行命令（Claude Code 的 Auto 模式等。危险的操作由各 AI 自身的安全机制拦下）。工作文件夹默认为主目录。详情请参阅 [权限与安全](#权限与安全) 和 [SECURITY.md](SECURITY.md)。
@@ -343,6 +344,7 @@ scripts/install.sh          # 构建后放入应用程序文件夹并启动
 - 只构建用 `scripts/build.sh`（→ `dist/JellyfishAI.app`，适用于这台 Mac 的 CPU），测试用 `scripts/test.sh`（swift test）
 - 应用图标由 `Resources/AppIcon.png`（1024px 的正方形）放入 macOS 图标的圆角框中生成。替换后重新构建即可更改
 - 分发包用 `scripts/release.sh` 生成到 `dist/release/`（universal 的 .dmg、.zip、SHA256SUMS.txt）。更新 `VERSION` 和 `CHANGELOG.md` 并提交、push 后，用 `scripts/release.sh --publish` 发布到 GitHub Releases
+- **下载次数**：`scripts/downloads.sh` 从 GitHub 读取每个发布的下载次数（`.dmg` = 从 README 或发布页面下载安装的次数，`.zip` = 应用内“更新”和手动下载 .zip；`--traffic` 还会显示最近 14 天的页面浏览量和 clone 次数，`--json` 输出 JSON）。README 顶部的徽章是 `JellyfishAI.dmg` 的下载总数。每个版本的 .dmg 都使用同一个名称 `JellyfishAI.dmg`，因此 `releases/latest/download/JellyfishAI.dmg` 始终指向最新版本，次数也集中在一处（1.0.5 之前的文件名带版本号，这部分包含在 `scripts/downloads.sh` 中）。GitHub 会重复计算同一个人的多次下载，不计算 clone 和源代码 zip
 
 ## 权限与安全
 

@@ -167,7 +167,7 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 ## 6. 配布と外部からの入口
 
 - **ビルド**：`scripts/build.sh`（この Mac の CPU）/ `--universal`（arm64 と x86_64 を別々に `swift build --arch` して `lipo`）。`VERSION` を CFBundleShortVersionString、コミット数を CFBundleVersion に入れ、アドホック署名する
-- **配布物**：`scripts/release.sh` が テスト → universal ビルド → 署名と CPU の確認 → .dmg（Applications へのリンクと「はじめにお読みください」）・.zip・SHA256SUMS.txt を作る。`--publish` で CHANGELOG の該当節をノートにして `gh release create`
+- **配布物**：`scripts/release.sh` が テスト → universal ビルド → 署名と CPU の確認 → .dmg（Applications へのリンクと「はじめにお読みください」）・.zip・SHA256SUMS.txt を作る。`--publish` で CHANGELOG の該当節をノートにして `gh release create`。.dmg は版によらず `JellyfishAI.dmg`（README の直リンク `releases/latest/download/JellyfishAI.dmg` とダウンロード数のバッジのため）、.zip は `JellyfishAI-<版>.zip`（`AppUpdater` が版で選ぶ）。`scripts/downloads.sh` がリリースごとの download_count（`--traffic` で views・clones）
 - **CI**：`.github/workflows/ci.yml`（macos-26。SpeechAnalyzer など macOS 26 の SDK が要る）でテストと universal ビルド
 - **テスト**：`Tests/JellyfishAITests`（Swift Testing）。画面や claude を使わない判定ロジック（URL の受け付け、バージョン比較、外部 MCP の判定、設定の読み込み、画面添付の判定、プロセスの親子判定、セッションの増分読み込み）。Command Line Tools だけの環境では `scripts/test.sh` が Testing.framework の場所を渡す
 - **`jellyfish://`**：`URLRoutes.allowed` が受け付ける操作を決める。普段は表示系（`new`・`open`・`toggle`・`show`・`hide`・`arrange`・`style`・`scale`）だけ。指示の送信・PC 操作の許可・作業フォルダ・削除などは `JELLYFISH_AUTOMATION=1` で起動したときだけ（デモ録画は `scripts/demo/record.sh` が付ける）

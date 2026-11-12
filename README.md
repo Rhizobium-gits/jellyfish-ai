@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://github.com/Rhizobium-gits/jellyfish-ai/actions/workflows/ci.yml"><img src="https://github.com/Rhizobium-gits/jellyfish-ai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest"><img src="https://img.shields.io/github/v/release/Rhizobium-gits/jellyfish-ai" alt="Release"></a>
+  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases"><img src="https://img.shields.io/github/downloads/Rhizobium-gits/jellyfish-ai/JellyfishAI.dmg?label=%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89%E6%95%B0" alt="ダウンロード数"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-lightgrey" alt="macOS 14+">
 </p>
@@ -21,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest"><b>⬇︎ ダウンロード（.dmg）</b></a>
+  <a href="https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest/download/JellyfishAI.dmg"><b>⬇︎ ダウンロード（.dmg）</b></a>
   &nbsp;·&nbsp; <a href="#ダウンロードとインストール">インストール</a>
   &nbsp;·&nbsp; <a href="#起動のしかた">起動のしかた</a>
   &nbsp;·&nbsp; <a href="#はじめかた">はじめかた</a>
@@ -50,13 +51,13 @@
 1. **使う AI の CLI を入れる**
    Claude Code・Codex CLI・Gemini CLI のどれかを、それぞれの公式の案内に沿って入れます。VS Code / Cursor の Claude Code 拡張を使っているなら、拡張に同梱の `claude` をそのまま使えます。ログインは、初めて起動したときに出る「アカウントと AI」の画面からできます（あとから入れた AI も、メニューバーのクラゲ › 🔑 アカウントと AI でログインできます）。まだ入っていない AI も、その画面やメニューの「入れてログイン…」から、許可すれば公式のパッケージを入れてそのままログインまで進めます
 2. **ダウンロード**
-   [Releases の最新版](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) から `JellyfishAI-<版>.dmg` をダウンロードします（`.zip` もあります。中身は同じ）
+   **[JellyfishAI.dmg をダウンロード](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest/download/JellyfishAI.dmg)**（いつも最新版。[Releases の最新版](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) のページからも同じものを取れます。`.zip` もあり、中身は同じ）
 3. **アプリケーションフォルダに入れる**
    .dmg を開き、**JellyfishAI** を隣の **Applications** へドラッグします
 4. **初回だけ「このまま開く」**
    アプリケーションフォルダの JellyfishAI を開くと、初回だけ macOS が「開けません」と止めます（Apple の公証を受けていない個人の開発物のため）。ダイアログを閉じ、**システム設定 › プライバシーとセキュリティ** の下の方にある「このまま開く」を押してください。2 回目からは普通に開けます
 
-ダウンロードしたファイルが壊れていないかは、同じリリースの `SHA256SUMS.txt` と `shasum -a 256 JellyfishAI-<版>.dmg` の結果を見比べて確かめられます。
+ダウンロードしたファイルが壊れていないかは、同じリリースの `SHA256SUMS.txt` と `shasum -a 256 JellyfishAI.dmg` の結果を見比べて確かめられます。
 
 > [!IMPORTANT]
 > エージェントは **確認なしで** ファイルの作成・編集・削除やコマンドの実行を行います（Claude Code の Auto モードなど。危ない操作はそれぞれの AI の安全の仕組みが止めます）。作業フォルダは既定でホームです。詳しくは [権限と安全](#権限と安全) と [SECURITY.md](SECURITY.md)。
@@ -343,6 +344,7 @@ scripts/install.sh          # ビルドしてアプリケーションフォル�
 - ビルドだけなら `scripts/build.sh`（→ `dist/JellyfishAI.app`、この Mac の CPU 用）、テストは `scripts/test.sh`（swift test）
 - アプリのアイコンは `Resources/AppIcon.png`（1024px の正方形）を macOS のアイコンの角丸の枠に収めて作ります。差し替えてビルドし直せば変わります
 - 配布物は `scripts/release.sh` で `dist/release/` に作ります（universal の .dmg・.zip・SHA256SUMS.txt）。`VERSION` と `CHANGELOG.md` を更新してコミット・push し、`scripts/release.sh --publish` で GitHub Releases に公開します
+- **ダウンロード数**：`scripts/downloads.sh` で、リリースごとの数を GitHub から読みます（`.dmg` = README・リリースのページからダウンロードして入れた回数、`.zip` = アプリの「アップデートする」と手での .zip。`--traffic` で直近 14 日のページの閲覧数・clone 数も、`--json` で JSON に）。README の上のバッジは `JellyfishAI.dmg` のダウンロード数の合計です。.dmg はどの版も `JellyfishAI.dmg` という同じ名前なので、`releases/latest/download/JellyfishAI.dmg` がいつも最新版を指し、数も 1 つにまとまります（1.0.5 までは版つきの名前だったので、`scripts/downloads.sh` の方に入っています）。GitHub は同じ人の 2 回目も数え、clone とソースの zip は数えません
 
 ## 権限と安全
 
