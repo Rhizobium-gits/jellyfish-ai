@@ -6,7 +6,10 @@ import simd
 ///   base / deep = リアルなクラゲの発光色と縁の濃い色
 struct JellyColor {
     let key: String
+    /// 画面とエージェントへの文に出す色の名前（作ったときの言語。Palette が毎回作り直す）
     let name: String
+    /// 日本語の色の名前（訳さない。名前で仲間を探すときの照合用）
+    let jaName: String
     let flat: SIMD3<Float>
     let base: SIMD3<Float>
     let deep: SIMD3<Float>
@@ -14,30 +17,32 @@ struct JellyColor {
 
 enum Palette {
     /// 生成順に割り当てる固定色。赤系はエラー表示用に予約しているので使わない。
-    static let named: [JellyColor] = [
-        JellyColor(key: "orange", name: "オレンジ", flat: [0.851, 0.467, 0.341], base: [1.00, 0.56, 0.20], deep: [0.86, 0.30, 0.04]),
-        JellyColor(key: "blue",   name: "ブルー", flat: [0.357, 0.553, 0.937],   base: [0.32, 0.64, 1.00], deep: [0.08, 0.30, 0.86]),
-        JellyColor(key: "purple", name: "パープル", flat: [0.616, 0.482, 0.918], base: [0.68, 0.48, 1.00], deep: [0.40, 0.16, 0.84]),
-        JellyColor(key: "green",  name: "グリーン", flat: [0.298, 0.718, 0.510], base: [0.32, 0.92, 0.58], deep: [0.04, 0.56, 0.30]),
-        JellyColor(key: "pink",   name: "ピンク", flat: [0.890, 0.478, 0.698],   base: [1.00, 0.48, 0.76], deep: [0.86, 0.14, 0.50]),
-        JellyColor(key: "yellow", name: "イエロー", flat: [0.886, 0.698, 0.227], base: [1.00, 0.86, 0.30], deep: [0.80, 0.56, 0.02]),
-        JellyColor(key: "cyan",   name: "シアン", flat: [0.239, 0.710, 0.784],   base: [0.30, 0.90, 0.96], deep: [0.02, 0.52, 0.66]),
-        JellyColor(key: "lime",   name: "ライム", flat: [0.576, 0.761, 0.290],   base: [0.72, 0.96, 0.32], deep: [0.40, 0.64, 0.04]),
-        JellyColor(key: "indigo", name: "インディゴ", flat: [0.431, 0.455, 0.902], base: [0.50, 0.54, 1.00], deep: [0.20, 0.22, 0.80]),
-        JellyColor(key: "amber",  name: "アンバー", flat: [0.890, 0.600, 0.290], base: [1.00, 0.72, 0.36], deep: [0.78, 0.42, 0.06]),
-    ]
+    /// 名前を今の言語にするため、使うたびに作る（言語を切り替えると変わる）
+    static var named: [JellyColor] { [
+        JellyColor(key: "orange", name: L("オレンジ"), jaName: "オレンジ", flat: [0.851, 0.467, 0.341], base: [1.00, 0.56, 0.20], deep: [0.86, 0.30, 0.04]),
+        JellyColor(key: "blue",   name: L("ブルー"), jaName: "ブルー", flat: [0.357, 0.553, 0.937],   base: [0.32, 0.64, 1.00], deep: [0.08, 0.30, 0.86]),
+        JellyColor(key: "purple", name: L("パープル"), jaName: "パープル", flat: [0.616, 0.482, 0.918], base: [0.68, 0.48, 1.00], deep: [0.40, 0.16, 0.84]),
+        JellyColor(key: "green",  name: L("グリーン"), jaName: "グリーン", flat: [0.298, 0.718, 0.510], base: [0.32, 0.92, 0.58], deep: [0.04, 0.56, 0.30]),
+        JellyColor(key: "pink",   name: L("ピンク"), jaName: "ピンク", flat: [0.890, 0.478, 0.698],   base: [1.00, 0.48, 0.76], deep: [0.86, 0.14, 0.50]),
+        JellyColor(key: "yellow", name: L("イエロー"), jaName: "イエロー", flat: [0.886, 0.698, 0.227], base: [1.00, 0.86, 0.30], deep: [0.80, 0.56, 0.02]),
+        JellyColor(key: "cyan",   name: L("シアン"), jaName: "シアン", flat: [0.239, 0.710, 0.784],   base: [0.30, 0.90, 0.96], deep: [0.02, 0.52, 0.66]),
+        JellyColor(key: "lime",   name: L("ライム"), jaName: "ライム", flat: [0.576, 0.761, 0.290],   base: [0.72, 0.96, 0.32], deep: [0.40, 0.64, 0.04]),
+        JellyColor(key: "indigo", name: L("インディゴ"), jaName: "インディゴ", flat: [0.431, 0.455, 0.902], base: [0.50, 0.54, 1.00], deep: [0.20, 0.22, 0.80]),
+        JellyColor(key: "amber",  name: L("アンバー"), jaName: "アンバー", flat: [0.890, 0.600, 0.290], base: [1.00, 0.72, 0.36], deep: [0.78, 0.42, 0.06]),
+    ] }
 
     /// index が固定色の数を超えたら、黄金角で色相を回して生成する（赤の帯は避ける）。
     static func color(_ index: Int) -> JellyColor {
-        if index < named.count { return named[index] }
-        let n = index - named.count
+        let all = named
+        if index < all.count { return all[index] }
+        let n = index - all.count
         var hue = (40.0 + Double(n) * 137.508).truncatingRemainder(dividingBy: 360.0)
         // 赤（エラー色）近辺 340°〜20° を避ける
         if hue > 330 || hue < 25 { hue = (hue + 60).truncatingRemainder(dividingBy: 360) }
         let base = hsv(hue, 0.62, 1.0)
         let deep = hsv(hue, 0.92, 0.82)
         let flat = hsv(hue, 0.60, 0.88)
-        return JellyColor(key: "hue\(Int(hue))", name: "カラー\(index + 1)", flat: flat, base: base, deep: deep)
+        return JellyColor(key: "hue\(Int(hue))", name: L("カラー%ld", index + 1), jaName: "カラー\(index + 1)", flat: flat, base: base, deep: deep)
     }
 
     private static func hsv(_ h: Double, _ s: Double, _ v: Double) -> SIMD3<Float> {

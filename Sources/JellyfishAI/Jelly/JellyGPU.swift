@@ -14,7 +14,7 @@ final class JellyGPU {
 
     private init() {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
-            fatalError("Metal が利用できません")
+            fatalError(L("Metal が利用できません"))
         }
         self.device = device
         self.queue = queue

@@ -59,6 +59,8 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$TMP"
 
-# アドホック署名（Apple の開発者証明書なし。配布物は初回だけ「このまま開く」が必要）
-codesign --force --sign - --timestamp=none "$APP" >/dev/null
+# アドホック署名（Apple の開発者証明書なし。配布物は初回だけ「このまま開く」が必要）。
+# Hardened Runtime を付ける：このアプリはアクセシビリティ・画面収録の許可を持つので、DYLD_INSERT_LIBRARIES などで
+# 他のプログラムがこのプロセスに入り込み、その許可を使うことを OS に止めてもらう（追加の entitlement は無し）
+codesign --force --options runtime --sign - --timestamp=none "$APP" >/dev/null
 echo "Built: $APP  (v$VERSION build $BUILD_NUMBER, $(lipo -archs "$APP/Contents/MacOS/JellyfishAI"))"

@@ -9,18 +9,18 @@ enum AccountMenu {
         var views: [NSView] = []
         let status: String
         if loading && snap == nil {
-            status = "読み込み中…"
+            status = L("読み込み中…")
         } else if let s = snap {
             let rel = RelativeDateTimeFormatter()
-            rel.locale = Locale(identifier: "ja_JP")
+            rel.locale = Locale(identifier: L("ja_JP"))
             rel.unitsStyle = .short
             let age = Date().timeIntervalSince(s.updatedAt)
-            status = (loading ? "更新中… " : "") + (age < 5 ? "たった今更新" : rel.localizedString(for: s.updatedAt, relativeTo: Date()) + "に更新")
+            status = (loading ? L("更新中…") + " " : "") + (age < 5 ? L("たった今更新") : L("%@に更新", rel.localizedString(for: s.updatedAt, relativeTo: Date())))
         } else {
             status = ""
         }
         let acct = snap?.account
-        views.append(AccountHeaderView(email: acct?.email ?? (snap == nil ? "Claude Code のアカウント" : "アカウント不明"),
+        views.append(AccountHeaderView(email: acct?.email ?? (snap == nil ? L("Claude Code のアカウント") : L("アカウント不明")),
                                        detail: acct?.plan.map { "Claude \($0)" } ?? "Claude Code",
                                        status: status))
         for l in snap?.limits ?? [] { views.append(UsageRowView(l)) }
@@ -92,14 +92,14 @@ private final class UsageRowView: MenuInfoView {
     required init?(coder: NSCoder) { fatalError() }
 
     static func resetText(_ l: ClaudeAccount.Limit, now: Date = Date()) -> String {
-        guard let d = l.resetsAt else { return l.resetsText.map { "リセット: \($0)" } ?? "" }
+        guard let d = l.resetsAt else { return l.resetsText.map { L("リセット: %@", $0) } ?? "" }
         let f = DateFormatter()
-        f.locale = Locale(identifier: "ja_JP")
-        f.dateFormat = "M月d日(E) H:mm"
+        f.locale = Locale(identifier: L("ja_JP"))
+        f.dateFormat = L("M月d日(E) H:mm")
         let rel = RelativeDateTimeFormatter()
-        rel.locale = Locale(identifier: "ja_JP")
+        rel.locale = Locale(identifier: L("ja_JP"))
         rel.unitsStyle = .short
-        return "\(f.string(from: d)) にリセット（\(rel.localizedString(for: d, relativeTo: now))）"
+        return L("%@ にリセット（%@）", f.string(from: d), rel.localizedString(for: d, relativeTo: now))
     }
 
     override func draw(_ dirtyRect: NSRect) {

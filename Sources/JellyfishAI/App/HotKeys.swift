@@ -100,10 +100,10 @@ final class Shortcuts {
             activeNewJelly = s.newJellyHotKey
         } else if HotKeyCenter.shared.register(id: ID.newJelly.rawValue, s.fallbackHotKey, action: action) == noErr {
             activeNewJelly = s.fallbackHotKey
-            conflictNote = "\(s.newJellyHotKey.display) は他のアプリが使用中のため \(s.fallbackHotKey.display) を使用"
+            conflictNote = L("%@ は他のアプリが使用中のため %@ を使用", s.newJellyHotKey.display, s.fallbackHotKey.display)
         } else {
             activeNewJelly = nil
-            conflictNote = "\(s.newJellyHotKey.display) と \(s.fallbackHotKey.display) はどちらも使用中"
+            conflictNote = L("%@ と %@ はどちらも使用中", s.newJellyHotKey.display, s.fallbackHotKey.display)
         }
     }
 

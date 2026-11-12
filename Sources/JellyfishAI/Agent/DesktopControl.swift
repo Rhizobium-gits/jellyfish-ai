@@ -37,11 +37,11 @@ final class DesktopControl {
     }
 
     static var permissionSummary: String {
-        "アクセシビリティ: \(hasAccessibility ? "許可済み" : "未許可") / 画面収録: \(hasScreenRecording ? "許可済み" : "未許可")"
+        L("アクセシビリティ: %@ / 画面収録: %@", hasAccessibility ? L("許可済み") : L("未許可"), hasScreenRecording ? L("許可済み") : L("未許可"))
     }
 
     /// 「PC 操作」スイッチが守る範囲（ユーザーが実際の権限を正しく把握できるように）
-    static let scopeNote = "「PC 操作」スイッチは、Jellyfish の PC 操作ツール（クリック・入力・画面の撮影など）をそのエージェントに渡すかどうかを決めます。macOS の許可は Jellyfish AI アプリ全体に付くため、スイッチがオフのエージェントでも、Claude Code が実行するコマンド（screencapture など）はアプリに付いた許可の範囲で動けます。使わなくなったら「システム設定 › プライバシーとセキュリティ」で許可を外してください。"
+    static var scopeNote: String { L("「PC 操作」スイッチは、Jellyfish の PC 操作ツール（クリック・入力・画面の撮影など）をそのエージェントに渡すかどうかを決めます。macOS の許可は Jellyfish AI アプリ全体に付くため、スイッチがオフのエージェントでも、Claude Code が実行するコマンドはアプリに付いた許可の範囲で動けます（screencapture による撮影や、スクリプトによるキー入力・クリックの合成など。このときは画面の縁は光らず Esc でも止まりません）。PC 操作のツールは、チャットで直接頼んだターンだけで渡します（仲間からの依頼では渡しません）。使わなくなったら「システム設定 › プライバシーとセキュリティ」で許可を外してください。") }
 
     // MARK: - 運転席（同時に 1 体だけ）
 
@@ -89,52 +89,52 @@ final class DesktopControl {
 
     // MARK: - ツール定義（MCP）
 
-    static let toolDefinitions: [[String: Any]] = [
+    static var toolDefinitions: [[String: Any]] { [
         ["name": "screen_capture",
-         "description": "画面を撮って PNG のパスを返す（Read ツールで開いて見る）。画像の 1 ピクセル = 1 ポイントで、画像上の (x, y) はグローバル座標 (origin_x + x, origin_y + y) に当たる。クリックなどの座標はこのグローバル座標で指定する。Jellyfish 自身のウィンドウは写らない。",
+         "description": L("画面を撮って PNG のパスを返す（Read ツールで開いて見る）。画像の 1 ピクセル = 1 ポイントで、画像上の (x, y) はグローバル座標 (origin_x + x, origin_y + y) に当たる。クリックなどの座標はこのグローバル座標で指定する。Jellyfish 自身のウィンドウは写らない。"),
          "inputSchema": ["type": "object", "properties": [
-            "display": ["type": "string", "description": "main（既定）/ all / 番号（1 から）"],
+            "display": ["type": "string", "description": L("main（既定）/ all / 番号（1 から）")],
          ]]],
         ["name": "list_windows",
-         "description": "画面に出ているウィンドウ（アプリ名・タイトル・位置と大きさ）を前面から順に返す。",
+         "description": L("画面に出ているウィンドウ（アプリ名・タイトル・位置と大きさ）を前面から順に返す。"),
          "inputSchema": ["type": "object", "properties": [:] as [String: Any]]],
         ["name": "ui_elements",
-         "description": "前面（または指定）アプリのウィンドウにあるボタン・入力欄・メニューなどの部品を、役割・名前・値・位置つきで返す（アクセシビリティ）。クリック位置を決めるのに使う。",
+         "description": L("前面（または指定）アプリのウィンドウにあるボタン・入力欄・メニューなどの部品を、役割・名前・値・位置つきで返す（アクセシビリティ）。クリック位置を決めるのに使う。"),
          "inputSchema": ["type": "object", "properties": [
-            "app": ["type": "string", "description": "アプリ名（省略で前面のアプリ）"],
-            "max": ["type": "number", "description": "返す部品の最大数（既定 150）"],
+            "app": ["type": "string", "description": L("アプリ名（省略で前面のアプリ）")],
+            "max": ["type": "number", "description": L("返す部品の最大数（既定 150）")],
          ]]],
         ["name": "open_app",
-         "description": "アプリを開いて前面にする（名前か bundle ID）。http / https の URL を渡すと既定のブラウザで開く。",
+         "description": L("アプリを開いて前面にする（名前か bundle ID）。http / https の URL を渡すと既定のブラウザで開く。"),
          "inputSchema": ["type": "object", "properties": [
             "name": ["type": "string"], "url": ["type": "string"],
          ]]],
         ["name": "mouse_click",
-         "description": "グローバル座標 (x, y) をクリックする。",
+         "description": L("グローバル座標 (x, y) をクリックする。"),
          "inputSchema": ["type": "object", "required": ["x", "y"], "properties": [
             "x": ["type": "number"], "y": ["type": "number"],
-            "button": ["type": "string", "description": "left（既定）/ right"],
-            "count": ["type": "number", "description": "1（既定）/ 2 = ダブルクリック"],
+            "button": ["type": "string", "description": L("left（既定）/ right")],
+            "count": ["type": "number", "description": L("1（既定）/ 2 = ダブルクリック")],
          ]]],
         ["name": "mouse_drag",
-         "description": "(from_x, from_y) から (to_x, to_y) へドラッグする。",
+         "description": L("(from_x, from_y) から (to_x, to_y) へドラッグする。"),
          "inputSchema": ["type": "object", "required": ["from_x", "from_y", "to_x", "to_y"], "properties": [
             "from_x": ["type": "number"], "from_y": ["type": "number"], "to_x": ["type": "number"], "to_y": ["type": "number"],
          ]]],
         ["name": "scroll",
-         "description": "(x, y) の位置でスクロールする。dy が正で上、負で下（行単位）。",
+         "description": L("(x, y) の位置でスクロールする。dy が正で上、負で下（行単位）。"),
          "inputSchema": ["type": "object", "required": ["x", "y", "dy"], "properties": [
             "x": ["type": "number"], "y": ["type": "number"], "dy": ["type": "number"], "dx": ["type": "number"],
          ]]],
         ["name": "type_text",
-         "description": "前面のアプリのフォーカスされた欄に文字を入力する（日本語も可。IME は通さない）。先に対象の欄をクリックしておくこと。",
+         "description": L("前面のアプリのフォーカスされた欄に文字を入力する（日本語も可。IME は通さない）。先に対象の欄をクリックしておくこと。"),
          "inputSchema": ["type": "object", "required": ["text"], "properties": ["text": ["type": "string"]]]],
         ["name": "press_keys",
-         "description": "キーを押す。例: \"return\", \"esc\", \"tab\", \"cmd+s\", \"cmd+shift+4\", \"down\"。複数はスペース区切りで順に押す。",
+         "description": L("キーを押す。例: \"return\", \"esc\", \"tab\", \"cmd+s\", \"cmd+shift+4\", \"down\"。複数はスペース区切りで順に押す。"),
          "inputSchema": ["type": "object", "required": ["keys"], "properties": ["keys": ["type": "string"]]]],
-    ]
+    ] }
 
-    static let systemPrompt = """
+    static var systemPrompt: String { L("""
     # PC 操作（ユーザーがこのエージェントに許可済み）
     jellyfish MCP の screen_capture / list_windows / ui_elements / open_app / mouse_click / mouse_drag / scroll / type_text / press_keys でこの Mac を操作できます。
     - まず screen_capture で画面を撮り、Read で画像を見てから操作する。操作のあとは必ずもう一度撮って結果を確かめる
@@ -143,7 +143,7 @@ final class DesktopControl {
     - 同時に PC を操作できるのは 1 体だけ。別のエージェントが操作中と返ったら、少し待ってからやり直す
     - パスワード・認証情報の入力、支払い・購入、メールやメッセージの送信、公開の投稿、削除などの取り返しのつかない操作は、ユーザーが明示的に頼んだ場合を除いてしない。ログイン・2 段階認証・支払いの画面に出たら止めてユーザーに伝える
     - ユーザーが Esc を押すと操作は止まる。止められたら続けずに、どこまでできたかを報告する
-    """
+    """) }
 
     // MARK: - 実行
 
@@ -153,14 +153,14 @@ final class DesktopControl {
         func num(_ k: String) -> CGFloat? { (a[k] as? NSNumber).map { CGFloat($0.doubleValue) } }
         let needsAX = ["mouse_click", "mouse_drag", "scroll", "type_text", "press_keys", "ui_elements"].contains(tool)
         if needsAX && !DesktopControl.hasAccessibility {
-            reply("アクセシビリティの権限がありません。ユーザーに「システム設定 › プライバシーとセキュリティ › アクセシビリティ で Jellyfish AI を許可」してもらってください。", true)
+            reply(L("アクセシビリティの権限がありません。ユーザーに「システム設定 › プライバシーとセキュリティ › アクセシビリティ で Jellyfish AI を許可」してもらってください。"), true)
             return
         }
         // 画面を読むだけのツールも含めて、使っている間は画面の縁を光らせ Esc で止められるようにする
         if ["mouse_click", "mouse_drag", "scroll", "type_text", "press_keys", "open_app",
             "screen_capture", "list_windows", "ui_elements"].contains(tool) {
             if let other = acquire(agent, name: name, color: color) {
-                reply("いまは「\(other)」が PC を操作中です。少し待ってからやり直してください。", true)
+                reply(L("いまは「%@」が PC を操作中です。少し待ってからやり直してください。", other), true)
                 return
             }
         }
@@ -168,7 +168,7 @@ final class DesktopControl {
         switch tool {
         case "screen_capture":
             guard DesktopControl.hasScreenRecording else {
-                reply("画面収録の権限がありません。ユーザーに「システム設定 › プライバシーとセキュリティ › 画面収録」で Jellyfish AI を許可してもらってください。", true)
+                reply(L("画面収録の権限がありません。ユーザーに「システム設定 › プライバシーとセキュリティ › 画面収録」で Jellyfish AI を許可してもらってください。"), true)
                 return
             }
             let which = (a["display"] as? String) ?? "main"
@@ -185,38 +185,38 @@ final class DesktopControl {
             if let s = a["url"] as? String {
                 // Web ページだけ（jellyfish:// や他のアプリのスキーム・ファイルは開かない）
                 guard let u = URL(string: s), ["http", "https"].contains(u.scheme?.lowercased() ?? "") else {
-                    reply("url は http / https だけ開けます", true); return
+                    reply(L("url は http / https だけ開けます"), true); return
                 }
                 NSWorkspace.shared.open(u)
-                reply("開きました: \(u.absoluteString)", false)
+                reply(L("開きました: %@", u.absoluteString), false)
             } else if let n = a["name"] as? String {
                 DesktopControl.openApp(n, reply: reply)
             } else {
-                reply("name か url が必要です", true)
+                reply(L("name か url が必要です"), true)
             }
         case "mouse_click":
-            guard let x = num("x"), let y = num("y") else { reply("x, y が必要です", true); return }
+            guard let x = num("x"), let y = num("y") else { reply(L("x, y が必要です"), true); return }
             let right = (a["button"] as? String) == "right"
             let count = Int(num("count") ?? 1)
             DesktopControl.click(CGPoint(x: x, y: y), right: right, count: max(1, min(count, 3)))
-            reply("クリックしました (\(Int(x)), \(Int(y)))\(count > 1 ? " ×\(count)" : "")", false)
+            reply(L("クリックしました (%ld, %ld)", Int(x), Int(y)) + (count > 1 ? " ×\(count)" : ""), false)
         case "mouse_drag":
             guard let fx = num("from_x"), let fy = num("from_y"), let tx = num("to_x"), let ty = num("to_y") else {
-                reply("from_x, from_y, to_x, to_y が必要です", true); return
+                reply(L("from_x, from_y, to_x, to_y が必要です"), true); return
             }
-            DesktopControl.drag(from: CGPoint(x: fx, y: fy), to: CGPoint(x: tx, y: ty)) { reply("ドラッグしました", false) }
+            DesktopControl.drag(from: CGPoint(x: fx, y: fy), to: CGPoint(x: tx, y: ty)) { reply(L("ドラッグしました"), false) }
         case "scroll":
-            guard let x = num("x"), let y = num("y"), let dy = num("dy") else { reply("x, y, dy が必要です", true); return }
+            guard let x = num("x"), let y = num("y"), let dy = num("dy") else { reply(L("x, y, dy が必要です"), true); return }
             DesktopControl.scroll(at: CGPoint(x: x, y: y), dy: Int32(dy), dx: Int32(num("dx") ?? 0))
-            reply("スクロールしました", false)
+            reply(L("スクロールしました"), false)
         case "type_text":
-            guard let t = a["text"] as? String else { reply("text が必要です", true); return }
-            DesktopControl.type(t) { reply("入力しました（\(t.count) 文字）", false) }
+            guard let t = a["text"] as? String else { reply(L("text が必要です"), true); return }
+            DesktopControl.type(t) { reply(L("入力しました（%ld 文字）", t.count), false) }
         case "press_keys":
-            guard let k = a["keys"] as? String else { reply("keys が必要です", true); return }
-            if let err = DesktopControl.press(k) { reply(err, true) } else { reply("押しました: \(k)", false) }
+            guard let k = a["keys"] as? String else { reply(L("keys が必要です"), true); return }
+            if let err = DesktopControl.press(k) { reply(err, true) } else { reply(L("押しました: %@", k), false) }
         default:
-            reply("未知のツール: \(tool)", true)
+            reply(L("未知のツール: %@", tool), true)
         }
     }
 
@@ -257,7 +257,7 @@ final class DesktopControl {
             return (TeamCoordinator.json(["displays": out, "mouse": ["x": Int(m.x), "y": Int(mainH - m.y)],
                                           "front_app": NSWorkspace.shared.frontmostApplication?.localizedName ?? ""]), false)
         } catch {
-            return ("画面を撮れませんでした: \(error.localizedDescription)", true)
+            return (L("画面を撮れませんでした: %@", error.localizedDescription), true)
         }
     }
 
@@ -277,7 +277,7 @@ final class DesktopControl {
     private static func uiElements(app name: String?, max: Int) -> String {
         let apps = NSWorkspace.shared.runningApplications
         guard let app = name.flatMap({ n in apps.first { $0.localizedName?.lowercased() == n.lowercased() || $0.bundleIdentifier == n } })
-                ?? NSWorkspace.shared.frontmostApplication else { return "アプリが見つかりません" }
+                ?? NSWorkspace.shared.frontmostApplication else { return L("アプリが見つかりません") }
         let root = AXUIElementCreateApplication(app.processIdentifier)
         var out: [[String: Any]] = []
         func attr(_ e: AXUIElement, _ k: String) -> AnyObject? {
@@ -328,10 +328,15 @@ final class DesktopControl {
             }
         }
         return TeamCoordinator.json(["app": app.localizedName ?? "", "elements": out,
-                                     "note": "x, y は部品の中心（グローバル座標）"])
+                                     "note": L("x, y は部品の中心（グローバル座標）")])
     }
 
     private static func openApp(_ n: String, reply: @escaping (String, Bool) -> Void) {
+        // 名前か bundle ID だけ。「../../Downloads/x」のようなパスで、アプリケーションフォルダの外の .app は開かない
+        guard !n.isEmpty, !n.contains("/"), !n.contains(":"), n != ".", n != ".." else {
+            reply(L("アプリの名前か bundle ID を渡してください（パスは使えません）"), true)
+            return
+        }
         let ws = NSWorkspace.shared
         let url = ws.urlForApplication(withBundleIdentifier: n)
             ?? ["/Applications", "/System/Applications", "/System/Applications/Utilities", "/Applications/Utilities"]
@@ -339,16 +344,16 @@ final class DesktopControl {
                 .first { FileManager.default.fileExists(atPath: $0.path) }
         if let running = ws.runningApplications.first(where: { $0.localizedName?.lowercased() == n.lowercased() }) {
             running.activate()
-            reply("前面にしました: \(running.localizedName ?? n)", false)
+            reply(L("前面にしました: %@", running.localizedName ?? n), false)
             return
         }
-        guard let url else { reply("アプリが見つかりません: \(n)", true); return }
+        guard let url else { reply(L("アプリが見つかりません: %@", n), true); return }
         let cfg = NSWorkspace.OpenConfiguration()
         cfg.activates = true
         ws.openApplication(at: url, configuration: cfg) { app, err in
             DispatchQueue.main.async {
-                if let err { reply("開けませんでした: \(err.localizedDescription)", true) }
-                else { reply("開きました: \(app?.localizedName ?? n)", false) }
+                if let err { reply(L("開けませんでした: %@", err.localizedDescription), true) }
+                else { reply(L("開きました: %@", app?.localizedName ?? n), false) }
             }
         }
     }
@@ -435,11 +440,11 @@ final class DesktopControl {
                 case "ctrl", "control", "⌃": flags.insert(.maskControl)
                 case "fn": flags.insert(.maskSecondaryFn)
                 default:
-                    guard let k = keyCodes[part] else { return "わからないキー: \(part)（例: return, esc, tab, space, delete, up, down, left, right, a〜z, 0〜9, f1〜f12）" }
+                    guard let k = keyCodes[part] else { return L("わからないキー: %@（例: return, esc, tab, space, delete, up, down, left, right, a〜z, 0〜9, f1〜f12）", part) }
                     key = k
                 }
             }
-            guard let k = key else { return "キーがありません: \(combo)" }
+            guard let k = key else { return L("キーがありません: %@", String(combo)) }
             combos.append((k, flags))
         }
         for (k, f) in combos {
@@ -499,7 +504,7 @@ private final class ControlBorder {
             v.layer?.addSublayer(b)
             if s == NSScreen.screens.first {
                 let t = CATextLayer()
-                let str = NSAttributedString(string: "🖱 \(name) が操作中 — Esc で止める", attributes: [
+                let str = NSAttributedString(string: L("🖱 %@ が操作中 — Esc で止める", name), attributes: [
                     .font: NSFont.systemFont(ofSize: 12, weight: .bold), .foregroundColor: NSColor.white])
                 let sz = str.size()
                 let pill = CALayer()

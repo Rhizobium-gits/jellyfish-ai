@@ -66,18 +66,18 @@ final class ClaudeAccount {
     static func fetch(override: String?, skipUsageFor skip: String?) -> (Snapshot, String?) {
         var snap = Snapshot(updatedAt: Date())
         guard let claude = ClaudeLocator.best(override: override) else {
-            snap.note = "Claude Code が見つかりません"
+            snap.note = L("Claude Code が見つかりません")
             return (snap, nil)
         }
         if claude.supportsAuthCommand, let out = run(claude.url, ["auth", "status", "--json"], timeout: 10) {
             snap.account = parseAccount(Data(out.utf8))
         }
         if snap.account?.loggedIn == false {
-            snap.note = "Claude Code にログインしていません（ターミナルで claude auth login）"
+            snap.note = L("Claude Code にログインしていません（ターミナルで claude auth login）")
             return (snap, nil)
         }
         if skip == claude.versionString {
-            snap.note = "この版の Claude Code では使用量を読めません"
+            snap.note = L("この版の Claude Code では使用量を読めません")
             return (snap, nil)
         }
         var args = ["-p", "--output-format", "json"]
@@ -87,20 +87,23 @@ final class ClaudeAccount {
         if claude.supportsStrictMCPConfig && claude.supportsMCPConfig {
             args += ["--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#]
         }
+        // 読むだけなので、ツールは渡さず、データフォルダに置かれたプロジェクトの設定（フックなど）も読み込まない
+        if claude.supportsSettingSources { args += ["--setting-sources", "user"] }
+        if claude.supportsToolsFlag { args += ["--tools", ""] }
         args += ["--", "/usage"]
         guard let out = run(claude.url, args, timeout: 20),
               let obj = try? JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any] else {
-            snap.note = "使用量を読めませんでした"
+            snap.note = L("使用量を読めませんでした")
             return (snap, nil)
         }
         guard obj["local_command"] as? String == "usage", let text = obj["result"] as? String else {
-            snap.note = "この版の Claude Code では使用量を読めません"
+            snap.note = L("この版の Claude Code では使用量を読めません")
             return (snap, claude.versionString)
         }
         snap.limits = parseUsage(text)
         if snap.limits.isEmpty {
             // API キーで使っているときなど、上限の行が無い
-            snap.note = text.split(separator: "\n").first.map(String.init) ?? "使用量の上限はありません"
+            snap.note = text.split(separator: "\n").first.map(String.init) ?? L("使用量の上限はありません")
         }
         return (snap, nil)
     }
@@ -159,15 +162,26 @@ final class ClaudeAccount {
     }
 
     /// 「Current week (all models)」→「今週（全モデル）」、「Current session」→「今のセッション」
+    /// （名前は日本語だが、いまの言語に訳す）
     static func japaneseLabel(_ s: String) -> String {
-        var t = s
-        if let open = t.firstIndex(of: "("), let close = t.lastIndex(of: ")"), open < close {
-            var inner = String(t[t.index(after: open)..<close])
-            if inner == "all models" { inner = "全モデル" }
-            t = String(t[..<open]).trimmingCharacters(in: .whitespaces) + "（\(inner)）"
+        var head = s
+        var inner: String?
+        if let open = s.firstIndex(of: "("), let close = s.lastIndex(of: ")"), open < close {
+            inner = String(s[s.index(after: open)..<close])
+            head = String(s[..<open]).trimmingCharacters(in: .whitespaces)
         }
-        return t.replacingOccurrences(of: "Current week", with: "今週")
-            .replacingOccurrences(of: "Current session", with: "今のセッション")
+        switch (head, inner) {
+        case ("Current week", "all models"?): return L("今週（全モデル）")
+        case ("Current week", let i?): return L("今週（%@）", i)
+        case ("Current week", nil): return L("今週")
+        case ("Current session", let i?): return L("今のセッション（%@）", i)
+        case ("Current session", nil): return L("今のセッション")
+        default:
+            var t = head
+            if let i = inner { t = L("%@（%@）", head, i == "all models" ? L("全モデル") : i) }
+            return t.replacingOccurrences(of: "Current week", with: L("今週"))
+                .replacingOccurrences(of: "Current session", with: L("今のセッション"))
+        }
     }
 
     /// 「Nov 13 at 2:59am (Asia/Tokyo)」「3pm (Asia/Tokyo)」→ 日時。読めなければ nil

@@ -19,11 +19,11 @@ enum AppInfo {
                                                    .foregroundColor: NSColor.labelColor]
         let small: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .paragraphStyle: p,
                                                     .foregroundColor: NSColor.secondaryLabelColor]
-        let credits = NSMutableAttributedString(string: "デスクトップに住む Claude Code のエージェント\n\n", attributes: body)
+        let credits = NSMutableAttributedString(string: L("デスクトップに住む Claude Code のエージェント") + "\n\n", attributes: body)
         var link = body
         link[.link] = repoURL
         credits.append(NSAttributedString(string: "github.com/\(repo)", attributes: link))
-        credits.append(NSAttributedString(string: "\n\nMIT License\n非公式のアプリで、Anthropic とは関係ありません。\nClaude・Claude Code は Anthropic の商標です。", attributes: small))
+        credits.append(NSAttributedString(string: "\n\nMIT License\n" + L("非公式のアプリで、Anthropic とは関係ありません。\nClaude・Claude Code は Anthropic の商標です。"), attributes: small))
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "Jellyfish AI",
@@ -40,25 +40,25 @@ enum AppInfo {
             let install = ClaudeLocator.best(override: manager.settings.claudePath)
             DispatchQueue.main.async {
                 let a = NSAlert()
-                a.messageText = "Jellyfish AI へようこそ"
+                a.messageText = L("Jellyfish AI へようこそ")
                 a.icon = NSApp.applicationIconImage
-                let claude = install.map { "✓ Claude Code \($0.versionString) を使います" }
-                    ?? "✗ Claude Code（claude コマンド）が見つかりません。先にインストールしてログインしてください。"
-                a.informativeText = """
+                let claude = install.map { L("✓ Claude Code %@ を使います", $0.versionString) }
+                    ?? L("✗ Claude Code（claude コマンド）が見つかりません。先にインストールしてログインしてください。")
+                a.informativeText = L("""
                 デスクトップのクラゲ 1 体が、Claude Code のエージェント 1 体です。
 
                 ・クラゲをクリック：話しかける
-                ・\(newJellyKey)：新しいクラゲ
+                ・%@：新しいクラゲ
                 ・ドラッグ：移動 ／ 長押し：消す
                 ・別のクラゲの近くで離す：つながってチームで分業
 
                 エージェントは Claude Code の Auto モードで動き、確認なしでファイルの作成・編集・削除やコマンドの実行を行います（作業フォルダは既定でホーム。危ない操作は Claude Code の安全判定で止まります）。PC 操作は既定でオフです。いま与えている権限は、メニューバーのクラゲの「実行ポリシー」「PC 操作」で確認できます。
 
-                \(claude)
-                """
-                a.addButton(withTitle: "はじめる")
-                if install == nil { a.addButton(withTitle: "インストール方法を開く") }
-                a.addButton(withTitle: "使い方（README）")
+                %@
+                """, newJellyKey, claude)
+                a.addButton(withTitle: L("はじめる"))
+                if install == nil { a.addButton(withTitle: L("インストール方法を開く")) }
+                a.addButton(withTitle: L("使い方（README）"))
                 NSApp.activate(ignoringOtherApps: true)
                 let r = a.runModal()
                 let second = NSApplication.ModalResponse.alertSecondButtonReturn
@@ -108,20 +108,20 @@ enum UpdateChecker {
                 let current = AppInfo.version
                 if let tag, status == 200 {
                     if AppVersion.isNewer(tag, than: current) {
-                        a.messageText = "新しいバージョン \(tag) があります"
-                        a.informativeText = "いまのバージョンは \(current) です。ダウンロードページから .dmg を入れ直してください（設定・クラゲ・会話はそのまま残ります）。"
-                        a.addButton(withTitle: "ダウンロードページを開く")
-                        a.addButton(withTitle: "あとで")
+                        a.messageText = L("新しいバージョン %@ があります", tag)
+                        a.informativeText = L("いまのバージョンは %@ です。ダウンロードページから .dmg を入れ直してください（設定・クラゲ・会話はそのまま残ります）。", current)
+                        a.addButton(withTitle: L("ダウンロードページを開く"))
+                        a.addButton(withTitle: L("あとで"))
                     } else {
-                        a.messageText = "最新のバージョンです"
+                        a.messageText = L("最新のバージョンです")
                         a.informativeText = "Jellyfish AI \(current)"
                         a.addButton(withTitle: "OK")
                     }
                 } else {
-                    a.messageText = "アップデートを確認できませんでした"
-                    a.informativeText = err?.localizedDescription ?? (status == 404 ? "まだリリースがありません。" : "GitHub から応答がありません（\(status)）。")
-                    a.addButton(withTitle: "リリースのページを開く")
-                    a.addButton(withTitle: "閉じる")
+                    a.messageText = L("アップデートを確認できませんでした")
+                    a.informativeText = err?.localizedDescription ?? (status == 404 ? L("まだリリースがありません。") : L("GitHub から応答がありません（%ld）。", status))
+                    a.addButton(withTitle: L("リリースのページを開く"))
+                    a.addButton(withTitle: L("閉じる"))
                 }
                 NSApp.activate(ignoringOtherApps: true)
                 let r = a.runModal()

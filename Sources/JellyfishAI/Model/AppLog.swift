@@ -6,13 +6,15 @@ enum AppLog {
     private static let url: URL = AppPaths.dataDir.appendingPathComponent("app.log")
     private static let fmt: ISO8601DateFormatter = ISO8601DateFormatter()
     private static let lock = NSLock()
-    private static var checked = false
+    /// 前に大きさを確かめてから書いたバイト数（起動したまま何週間も動いても、際限なく大きくならないように）
+    private static var sinceCheck = Int.max
 
     static func write(_ msg: String) {
         let line = "\(fmt.string(from: Date())) \(msg)\n"
         guard let data = line.data(using: .utf8) else { return }
         lock.lock(); defer { lock.unlock() }
-        if !checked { checked = true; LogRotation.rotate(url, maxBytes: 2_000_000) }
+        if sinceCheck > 100_000 { sinceCheck = 0; LogRotation.rotate(url, maxBytes: 2_000_000) }
+        sinceCheck += data.count
         if let h = try? FileHandle(forWritingTo: url) {
             h.seekToEndOfFile()
             h.write(data)

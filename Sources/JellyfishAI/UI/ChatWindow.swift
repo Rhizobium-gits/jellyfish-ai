@@ -146,12 +146,12 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private let titleLabel = NSTextField(labelWithString: "")
     private let stateLabel = NSTextField(labelWithString: "")
     private let dot = NSImageView()
-    private let cancelButton = NSButton(title: "キャンセル", target: nil, action: nil)
-    private let retryButton = NSButton(title: "再実行", target: nil, action: nil)
+    private let cancelButton = NSButton(title: L("キャンセル"), target: nil, action: nil)
+    private let retryButton = NSButton(title: L("再実行"), target: nil, action: nil)
     private let folderButton = NSButton(title: "", target: nil, action: nil)
-    private let terminalButton = NSButton(title: "Claude Code で開く", target: nil, action: nil)
-    private let renameButton = NSButton(title: "名前", target: nil, action: nil)
-    private let pcButton = NSButton(title: "🖱 PC 操作", target: nil, action: nil)
+    private let terminalButton = NSButton(title: L("Claude Code で開く"), target: nil, action: nil)
+    private let renameButton = NSButton(title: L("名前"), target: nil, action: nil)
+    private let pcButton = NSButton(title: L("🖱 PC 操作"), target: nil, action: nil)
     private let listenButton = NSButton(title: "🎧", target: nil, action: nil)
     private var listenTimer: Timer?
     private let transcript = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
@@ -162,8 +162,13 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private let screenPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let attachButton = NSButton(title: "📎", target: nil, action: nil)
     private let attachLabel = NSTextField(labelWithString: "")
-    private let clearAttachButton = NSButton(title: "添付を外す", target: nil, action: nil)
+    private let clearAttachButton = NSButton(title: L("添付を外す"), target: nil, action: nil)
     private var pendingAttachments: [URL] = []
+    /// 自律組織：この依頼をどの組織で進めたかと、その結果への 👍 / 👎（次の組織の選び方の学習に使う）
+    private let orgLabel = NSTextField(labelWithString: "")
+    private let thumbsUpButton = NSButton(title: "👍", target: nil, action: nil)
+    private let thumbsDownButton = NSButton(title: "👎", target: nil, action: nil)
+    private var orgRow: NSStackView?
     /// チャットを開く前に使っていたアプリ（画面認識でどの画面を撮るか・アプリ名に使う）
     private var contextApp: NSRunningApplication?
     private var capturing = false
@@ -173,22 +178,22 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private var attachRow: NSStackView?
 
     /// 選べるモデル（Claude Code の --model に渡す値。エイリアスは常に最新版を指す）
-    static let models: [(label: String, value: String?)] = [
-        ("モデル: 既定", nil),
+    static var models: [(label: String, value: String?)] { [
+        (L("モデル: 既定"), nil),
         ("Fable 5.2", "fable"),
         ("Opus 5.5", "opus"),
         ("Sonnet 5.5", "sonnet"),
         ("Haiku 5.5", "claude-haiku-5-5"),
-    ]
+    ] }
     /// 考える強さ（--effort）
-    static let efforts: [(label: String, value: String?)] = [
-        ("強さ: 既定", nil),
-        ("low（速い）", "low"),
+    static var efforts: [(label: String, value: String?)] { [
+        (L("強さ: 既定"), nil),
+        (L("low（速い）"), "low"),
         ("medium", "medium"),
         ("high", "high"),
         ("xhigh", "xhigh"),
-        ("max（最も深く）", "max"),
-    ]
+        (L("max（最も深く）"), "max"),
+    ] }
 
     private var previousApp: NSRunningApplication?
     /// ⌘L で作ったばかりのクラゲへの最初の指示は、送信したらウィンドウを閉じて元の作業に戻す
@@ -247,15 +252,28 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         pcButton.action = #selector(togglePC)
         listenButton.action = #selector(toggleListen)
         listenButton.setButtonType(.pushOnPushOff)
-        listenButton.toolTip = "システムの音（会議・動画など）を聞き取って文字にする。止めると文字起こしを添付するので「議事録にして」「翻訳して」と頼める"
+        listenButton.toolTip = L("システムの音（会議・動画など）を聞き取って文字にする。止めると文字起こしを添付するので「議事録にして」「翻訳して」と頼める")
         pcButton.setButtonType(.pushOnPushOff)
-        pcButton.toolTip = "このエージェントに PC 操作（画面を見る・クリック・入力）を許す。操作中は画面の縁が光り、Esc で止まる。次の指示から反映"
-        renameButton.toolTip = "このエージェントの名前を変える（仲間どうしはこの名前で呼び合います）"
+        pcButton.toolTip = L("このエージェントに PC 操作（画面を見る・クリック・入力）を許す。操作中は画面の縁が光り、Esc で止まる。次の指示から反映")
+        renameButton.toolTip = L("このエージェントの名前を変える（仲間どうしはこの名前で呼び合います）")
         retryButton.action = #selector(retryTask)
+        for b in [thumbsUpButton, thumbsDownButton] {
+            b.bezelStyle = .accessoryBarAction
+            b.controlSize = .small
+            b.target = self
+        }
+        thumbsUpButton.action = #selector(orgThumbsUp)
+        thumbsDownButton.action = #selector(orgThumbsDown)
+        thumbsUpButton.toolTip = L("よかった（この組織の選び方を強める）")
+        thumbsDownButton.toolTip = L("いまひとつ（次は別の組織を試す）")
+        orgLabel.font = .systemFont(ofSize: 11.5)
+        orgLabel.textColor = .secondaryLabelColor
+        orgLabel.lineBreakMode = .byTruncatingTail
+        orgLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         folderButton.action = #selector(chooseFolder)
-        folderButton.toolTip = "作業フォルダを変更"
+        folderButton.toolTip = L("作業フォルダを変更")
         terminalButton.action = #selector(openInTerminal)
-        terminalButton.toolTip = "同じセッションをターミナルの claude --resume で開く"
+        terminalButton.toolTip = L("同じセッションをターミナルの claude --resume で開く")
 
         let titleRow = NSStackView(views: [dot, titleLabel, NSView(), renameButton, retryButton, cancelButton])
         titleRow.orientation = .horizontal
@@ -273,7 +291,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         }
         modelPopup.action = #selector(modelChanged)
         screenPopup.action = #selector(screenModeChanged)
-        screenPopup.toolTip = "「この画面」などと書いたとき、送信時の画面を撮って添付する（Jellyfish のウィンドウは写りません）"
+        screenPopup.toolTip = L("「この画面」などと書いたとき、送信時の画面を撮って添付する（Jellyfish のウィンドウは写りません）")
         for b in [attachButton, clearAttachButton] {
             b.bezelStyle = .accessoryBarAction
             b.controlSize = .small
@@ -281,14 +299,14 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             b.target = self
         }
         attachButton.action = #selector(attachFiles)
-        attachButton.toolTip = "画像やファイルを添付（添付があるときは画面の自動添付より優先）"
+        attachButton.toolTip = L("画像やファイルを添付（添付があるときは画面の自動添付より優先）")
         clearAttachButton.action = #selector(clearAttachments)
         attachLabel.font = .systemFont(ofSize: 11.5)
         attachLabel.textColor = .secondaryLabelColor
         attachLabel.lineBreakMode = .byTruncatingMiddle
         effortPopup.action = #selector(effortChanged)
-        modelPopup.toolTip = "このクラゲが使うモデル（次の指示から反映）"
-        effortPopup.toolTip = "考える強さ（--effort。次の指示から反映）"
+        modelPopup.toolTip = L("このクラゲが使うモデル（次の指示から反映）")
+        effortPopup.toolTip = L("考える強さ（--effort。次の指示から反映）")
         let controlsRow = NSStackView(views: [modelPopup, effortPopup, screenPopup, attachButton, pcButton, listenButton, folderButton, NSView(), terminalButton])
         controlsRow.orientation = .horizontal
         controlsRow.spacing = 6
@@ -345,7 +363,12 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         attachRow.orientation = .horizontal
         attachRow.spacing = 6
         self.attachRow = attachRow
-        let stack = NSStackView(views: [titleRow, infoRow, transcriptScroll, attachRow, inputScroll, controlsRow, footer])
+        let orgRow = NSStackView(views: [orgLabel, NSView(), thumbsUpButton, thumbsDownButton])
+        orgRow.orientation = .horizontal
+        orgRow.spacing = 6
+        orgRow.isHidden = true
+        self.orgRow = orgRow
+        let stack = NSStackView(views: [titleRow, infoRow, transcriptScroll, orgRow, attachRow, inputScroll, controlsRow, footer])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -365,7 +388,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             inputHeight,
         ]
         attachRow.isHidden = true
-        for v in [titleRow, infoRow, transcriptScroll, attachRow, inputScroll, controlsRow, footer] as [NSView] {
+        for v in [titleRow, infoRow, transcriptScroll, orgRow, attachRow, inputScroll, controlsRow, footer] as [NSView] {
             cs.append(v.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32))
         }
         NSLayoutConstraint.activate(cs)
@@ -383,13 +406,22 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     // MARK: 表示
 
-    func show(near jelly: JellyController, focusInput: Bool = true) {
+    /// activate: false なら、前面に出すだけでキーボードの入力先は奪わない（外のアプリ・Web ページからの jellyfish://。
+    /// 打っている途中の文字がチャットに入って、Enter で送られてしまわないように）
+    func show(near jelly: JellyController, focusInput: Bool = true, activate: Bool = true) {
         self.jelly = jelly
         let front = NSWorkspace.shared.frontmostApplication
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front; contextApp = front }
         if window.isMiniaturized { window.deminiaturize(nil) }
         if !window.isVisible { placeIfNeeded(near: jelly) }
         manager?.chatWindowVisibilityChanged()
+        guard activate else {
+            window.orderFrontRegardless()
+            if focusInput { window.makeFirstResponder(input) }
+            refresh()
+            reloadTranscript()
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         if focusInput { window.makeFirstResponder(input) }
@@ -443,16 +475,25 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         let running = runtime.isRunning
         var st = "\(r.title) · \(r.state.label)"
         if running, let a = runtime.activity { st += " — \(a)" }
-        if capturing { st = "\(r.title) · 📷 画面を取り込んでいます…" }
+        if capturing { st = L("%@ · 📷 画面を取り込んでいます…", r.title) }
         if let m = runtime.activeModel { st += "  ·  \(m)" }
         if let p = manager?.team?.pendingDescription(for: r.id) { st += "  ·  \(p)" }
         // 線でつながった仲間（この人たちに分担を頼める）
         let mates = (manager?.settings.teamEnabled ?? false) ? (manager?.team?.teammateNames(for: r.id) ?? []) : []
         if !mates.isEmpty {
-            let shown = mates.prefix(3).joined(separator: "・") + (mates.count > 3 ? " ほか \(mates.count - 3) 体" : "")
-            st += "  ·  👥 \(shown) とチーム"
+            let shown = mates.prefix(3).joined(separator: L("・")) + (mates.count > 3 ? L(" ほか %ld 体", mates.count - 3) : "")
+            st += "  ·  " + L("👥 %@ とチーム", shown)
         }
-        if running, !runtime.externalLoaded.isEmpty { st += "  ·  🧩 " + runtime.externalLoaded.joined(separator: "・") }
+        if running, !runtime.externalLoaded.isEmpty { st += "  ·  🧩 " + runtime.externalLoaded.joined(separator: L("・")) }
+        if running, let o = manager?.team?.orgStatus(for: r.id) { st += "  ·  " + o }
+        if !running, let e = manager?.team?.orgFeedback(for: r.id) {
+            let g = OrgGenome(key: e.usedKey)?.label ?? e.usedKey
+            orgLabel.stringValue = L("🧬 この依頼は「%@」で進めました。結果はどうでしたか？", g)
+            orgLabel.toolTip = L("自律組織モード：👍 / 👎 と、続けて送る指示（「違う」「ありがとう」など）から、次の依頼の組織の選び方を学びます（この Mac の中だけ）")
+            orgRow?.isHidden = false
+        } else {
+            orgRow?.isHidden = true
+        }
         if let l = manager?.listeningStatus(jelly) { st = "\(r.title) · " + l }
         screenPopup.selectItem(at: ScreenMode.allCases.firstIndex(of: manager?.settings.screenMode ?? .auto) ?? 0)
         modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 0)
@@ -460,7 +501,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         effortPopup.isEnabled = manager?.supportsEffort ?? true
         let listening = manager?.isListening(jelly) ?? false
         listenButton.state = listening ? .on : .off
-        listenButton.title = listening ? "🎧 停止" : "🎧"
+        listenButton.title = listening ? L("🎧 停止") : "🎧"
         if listening, listenTimer == nil {
             let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
             RunLoop.main.add(t, forMode: .common)
@@ -470,7 +511,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             listenTimer = nil
         }
         pcButton.state = runtime.pcControl ? .on : .off
-        pcButton.title = runtime.pcControl ? "🖱 PC 操作: オン" : "🖱 PC 操作"
+        pcButton.title = runtime.pcControl ? L("🖱 PC 操作: オン") : L("🖱 PC 操作")
         stateLabel.stringValue = st
         cancelButton.isHidden = !running
         let last = runtime.lastTurn
@@ -480,10 +521,12 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         folderButton.title = "📁 " + runtime.cwd.path.replacingOccurrences(of: home, with: "~")
 
         input.isEditable = !running && !capturing
-        let teamHint = mates.isEmpty ? "" : "（つながっている \(mates.prefix(2).joined(separator: "・"))\(mates.count > 2 ? " たち" : "") に分担させることもできます）"
-        input.placeholder = running ? "実行中です。終わったら続けて指示できます"
-            : (runtime.turns.isEmpty && !runtime.sessionStarted ? "\(r.title) に頼みたいことを入力…" : "この結果に続けて指示する…") + teamHint
-        footer.stringValue = "⏎ 送信   ⇧⏎ 改行   esc 閉じる   ·   \(manager?.policyDescription ?? "")   ·   記録: Claude Code のセッション"
+        let hintNames = mates.prefix(2).joined(separator: L("・"))
+        let teamHint = mates.isEmpty ? "" : (mates.count > 2 ? L("（つながっている %@ たち に分担させることもできます）", hintNames)
+                                                              : L("（つながっている %@ に分担させることもできます）", hintNames))
+        input.placeholder = running ? L("実行中です。終わったら続けて指示できます")
+            : (runtime.turns.isEmpty && !runtime.sessionStarted ? L("%@ に頼みたいことを入力…", r.title) : L("この結果に続けて指示する…")) + teamHint
+        footer.stringValue = L("⏎ 送信   ⇧⏎ 改行   esc 閉じる   ·   %@   ·   記録: Claude Code のセッション", manager?.policyDescription ?? "")
         scheduleReload()
     }
 
@@ -528,14 +571,14 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                     let from = String(text[text.index(text.startIndex, offsetBy: TeamCoordinator.requestMarker.count)..<end.lowerBound])
                     text = String(text[end.upperBound...])
                     if let f = text.range(of: TeamCoordinator.requestFooter) { text = String(text[..<f.lowerBound]) }
-                    out.append(caption("📨 \(from) からの依頼", accent))
+                    out.append(caption(L("📨 %@ からの依頼", from), accent))
                 } else {
-                    out.append(caption("あなた", .secondaryLabelColor))
+                    out.append(caption(L("あなた"), .secondaryLabelColor))
                 }
                 if let r = text.range(of: ScreenContext.marker) {
                     let block = String(text[r.upperBound...])
                     text = String(text[..<r.lowerBound])
-                    notes.append(block.contains(".png") ? "📷 画面を添付しました" : "📷 画面の添付に失敗しました")
+                    notes.append(block.contains(".png") ? L("📷 画面を添付しました") : L("📷 画面の添付に失敗しました"))
                 }
                 if let r = text.range(of: AgentChatController.attachMarker) {
                     let names = text[r.upperBound...].split(separator: "\n").filter { $0.hasPrefix("- ") }
@@ -562,17 +605,17 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             lastRole = m.role
         }
         if let last = runtime.lastTurn, last.state == .error || last.state == .cancelled, let e = last.error, !e.isEmpty {
-            out.append(caption(last.state == .error ? "エラー" : "キャンセル", .systemRed))
+            out.append(caption(last.state == .error ? L("エラー") : L("キャンセル済み"), .systemRed))
             out.append(NSAttributedString(string: e + "\n", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                                                                            .foregroundColor: NSColor.systemRed]))
         }
         if runtime.isRunning {
             out.append(caption("Claude", accent))
-            out.append(NSAttributedString(string: "… \(runtime.activity ?? "作業中")\n",
+            out.append(NSAttributedString(string: "… " + (runtime.activity ?? L("作業中")) + "\n",
                                           attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: accent]))
         }
         if out.length == 0 {
-            out.append(NSAttributedString(string: "まだ会話はありません。下の欄に指示を入力してください。\n",
+            out.append(NSAttributedString(string: L("まだ会話はありません。下の欄に指示を入力してください。") + "\n",
                                           attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.tertiaryLabelColor]))
         }
 
@@ -634,7 +677,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         let attach = pendingAttachments
         if !attach.isEmpty {
             prompt += AgentChatController.attachMarker + "\n" + attach.map { "- \($0.path)" }.joined(separator: "\n")
-                + "\n画像やファイルは Read ツールで開いて内容を確認してください。"
+                + "\n" + L("画像やファイルは Read ツールで開いて内容を確認してください。")
         }
         input.string = ""
         history.reset()
@@ -656,7 +699,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             guard let self else { return }
             self.capturing = false
             var p = prompt + ctx.promptSuffix
-            if let note = ctx.note { p += ScreenContext.marker + "\n" + note + "（画像なしで進めてください）" }
+            if let note = ctx.note { p += ScreenContext.marker + "\n" + note + L("（画像なしで進めてください）") }
             AppLog.write("screen capture images=\(ctx.images.count) app=\(ctx.appName ?? "-") note=\(ctx.note ?? "-")")
             self.send(p)
         }
@@ -719,7 +762,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         op.canChooseFiles = true
         op.canChooseDirectories = false
         op.allowsMultipleSelection = true
-        op.prompt = "添付"
+        op.prompt = L("添付")
         op.beginSheetModal(for: window) { [weak self] resp in
             guard resp == .OK, let self else { return }
             self.setAttachments(self.pendingAttachments + op.urls)
@@ -769,15 +812,25 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         runtime.pcControl = on
         if on && !(DesktopControl.hasAccessibility && DesktopControl.hasScreenRecording) {
             let a = NSAlert()
-            a.messageText = "PC 操作には macOS の許可が必要です"
-            a.informativeText = "「システム設定 › プライバシーとセキュリティ」の「アクセシビリティ」と「画面収録」で Jellyfish AI を許可してください（許可したあとアプリの再起動が必要なことがあります）。\n\n今の状態: \(DesktopControl.permissionSummary)\n\n" + DesktopControl.scopeNote
-            a.addButton(withTitle: "許可の画面を開く")
-            a.addButton(withTitle: "あとで")
+            a.messageText = L("PC 操作には macOS の許可が必要です")
+            a.informativeText = L("「システム設定 › プライバシーとセキュリティ」の「アクセシビリティ」と「画面収録」で Jellyfish AI を許可してください（許可したあとアプリの再起動が必要なことがあります）。\n\n今の状態: %@", DesktopControl.permissionSummary)
+                + "\n\n" + DesktopControl.scopeNote
+            a.addButton(withTitle: L("許可の画面を開く"))
+            a.addButton(withTitle: L("あとで"))
             if a.runModal() == .alertFirstButtonReturn { DesktopControl.requestPermissions() }
         }
         refresh()
     }
     @objc private func retryTask() { runtime.retry() }
+
+    @objc private func orgThumbsUp() { orgReact(.thumbsUp) }
+    @objc private func orgThumbsDown() { orgReact(.thumbsDown) }
+
+    private func orgReact(_ r: OrgReaction) {
+        guard let id = jelly?.record.id else { return }
+        manager?.team?.react(id, r)
+        refresh()
+    }
 
     @objc private func chooseFolder() {
         let op = NSOpenPanel()
@@ -785,8 +838,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         op.canChooseFiles = false
         op.allowsMultipleSelection = false
         op.directoryURL = runtime.cwd
-        op.prompt = "このフォルダで作業"
-        op.message = "このクラゲが作業するフォルダを選んでください（新しいセッションとして始まります）"
+        op.prompt = L("このフォルダで作業")
+        op.message = L("このクラゲが作業するフォルダを選んでください（新しいセッションとして始まります）")
         op.beginSheetModal(for: window) { [weak self] resp in
             guard resp == .OK, let url = op.url, let self else { return }
             self.runtime.changeFolder(url)

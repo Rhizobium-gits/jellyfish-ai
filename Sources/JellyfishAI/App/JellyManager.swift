@@ -54,7 +54,27 @@ final class JellyManager {
         }
         save()
         team = TeamCoordinator(manager: self, store: store)
+        team?.org.onChange = { [weak self] in self?.onChange?() }
         team?.start()
+    }
+
+    static let languageChanged = Notification.Name("JellyfishLanguageChanged")
+
+    /// 表示の言語を変える。開いているチャットは作り直す（ボタンや案内の文字を新しい言語にする）
+    func setLanguage(_ lang: AppLanguage) {
+        guard lang != settings.language else { return }
+        settings.language = lang
+        L10n.setting = lang
+        store.save(settings)
+        let open = chats.filter { $0.value.isVisible }.map(\.key)
+        for (_, chat) in chats { chat.window.orderOut(nil); chat.window.close() }
+        chats.removeAll()
+        for id in open { if let c = controllers.first(where: { $0.record.id == id }) { openChat(for: c, activate: false) } }
+        chatWindowVisibilityChanged()
+        team?.refresh()
+        onChange?()
+        NotificationCenter.default.post(name: JellyManager.languageChanged, object: nil)
+        AppLog.write("language: \(lang.rawValue) -> \(L10n.current.rawValue)")
     }
 
     private func makeRecord() -> JellyRecord {
@@ -115,16 +135,16 @@ final class JellyManager {
 
     /// 新しいクラゲ（エージェント）を生成する。既存のクラゲには一切触れない。
     @discardableResult
-    func spawn(openChat open: Bool = true) -> JellyController {
+    func spawn(openChat open: Bool = true, activate: Bool = true) -> JellyController {
         if settings.allHidden { setAllHidden(false) }
         let c = addController(makeRecord())
         c.show(animated: true)
         save()
         onChange?()
-        // 生成したらすぐ指示を打ち込めるように
+        // 生成したらすぐ指示を打ち込めるように（activate: false は外からの URL。入力先は奪わない）
         if open { DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self, weak c] in
             guard let self, let c, self.controllers.contains(where: { $0 === c }) else { return }
-            self.openChat(for: c, quickCapture: true)
+            self.openChat(for: c, quickCapture: true, activate: activate)
         } }
         return c
     }
@@ -133,9 +153,15 @@ final class JellyManager {
 
     func backend() -> AgentBackend? {
         guard let install = ClaudeLocator.best(override: settings.claudePath) else { return nil }
-        return ClaudeCodeBackend(install: install, permissionMode: settings.permissionMode,
-                                 model: settings.model.isEmpty ? nil : settings.model)
+        let b = ClaudeCodeBackend(install: install, permissionMode: settings.permissionMode,
+                                  model: settings.model.isEmpty ? nil : settings.model)
+        if ClaudeCodeBackend.refusedSetting(settings.permissionMode, install: install), loggedRefusedMode != settings.permissionMode {
+            loggedRefusedMode = settings.permissionMode
+            AppLog.write("permissionMode \(settings.permissionMode.prefix(40)) refused; using \(b.permissionMode)")
+        }
+        return b
     }
+    private var loggedRefusedMode: String?
 
     /// 画面表示用（待たない。起動直後は「確認中」）
     private var peekBackend: ClaudeCodeBackend? {
@@ -146,18 +172,25 @@ final class JellyManager {
 
     var policyDescription: String {
         if let b = peekBackend { return b.policyDescription }
-        if case .detecting = ClaudeLocator.status(override: settings.claudePath) { return "Claude Code を確認中…" }
-        return "claude が見つかりません"
+        if case .detecting = ClaudeLocator.status(override: settings.claudePath) { return L("Claude Code を確認中…") }
+        return L("claude が見つかりません")
     }
 
     /// 実際に付ける --permission-mode（その版に auto が無ければ acceptEdits に落ちる）
     var effectivePermissionMode: String { peekBackend?.permissionMode ?? settings.permissionMode }
 
+    /// settings.json の permissionMode を使わずに置き換えているとき、その値（bypassPermissions など）
+    var refusedPermissionMode: String? {
+        guard case .found(let install) = ClaudeLocator.status(override: settings.claudePath),
+              ClaudeCodeBackend.refusedSetting(settings.permissionMode, install: install) else { return nil }
+        return settings.permissionMode
+    }
+
     var claudePathDescription: String {
         switch ClaudeLocator.status(override: settings.claudePath) {
         case .found(let i): return "\(i.versionString)  \(i.url.path)"
-        case .detecting: return "確認中…"
-        case .notFound: return "未検出（Claude Code をインストールしてください）"
+        case .detecting: return L("確認中…")
+        case .notFound: return L("未検出（Claude Code をインストールしてください）")
         }
     }
 
@@ -191,6 +224,14 @@ final class JellyManager {
             case .never:
                 return .init(load: false, servers: servers, note: ExternalMCP.notLoadedNote(servers, canLoad: false))
             case .auto:
+                // 仲間からの依頼の文に名前が書いてあっても読み込まない（依頼文は Web ページなどに誘導された仲間が書いたかもしれない）。
+                // 依頼元がユーザーの指示で外部ツールを読み込んで動いているときだけ、同じように読み込む
+                if let from = self?.team?.requester(ofRunning: id) {
+                    let fromRT = self?.controllers.first { $0.record.id == from }.flatMap { self?.runtime(for: $0) }
+                    let fromLoaded = fromRT.map { $0.isRunning && !$0.externalLoaded.isEmpty } ?? false
+                    if loadedInSession || fromLoaded { return .init(load: true, servers: servers, note: nil) }
+                    return .init(load: false, servers: servers, note: ExternalMCP.notLoadedForRequestNote(servers))
+                }
                 let named = ExternalMCP.mentioned(in: text, servers: servers)
                 if loadedInSession || !named.isEmpty { return .init(load: true, servers: servers, note: nil) }
                 return .init(load: false, servers: servers, note: ExternalMCP.notLoadedNote(servers, canLoad: true))
@@ -211,7 +252,7 @@ final class JellyManager {
     }
 
     /// チャットウィンドウを開く。quickCapture（⌘L で作った直後）は、最初の指示を送ったら閉じて元の作業に戻す
-    func openChat(for c: JellyController, quickCapture: Bool = false) {
+    func openChat(for c: JellyController, quickCapture: Bool = false, activate: Bool = true) {
         guard let rt = runtimes[c.record.id] else { return }
         let chat: AgentChatController
         if let existing = chats[c.record.id] {
@@ -230,7 +271,7 @@ final class JellyManager {
             chats[c.record.id] = chat
         }
         chat.closeAfterFirstSubmit = quickCapture
-        chat.show(near: c)
+        chat.show(near: c, activate: activate)
     }
 
     /// デモ録画・自動テスト用：チャットの入力欄に 1 文字ずつ打ち込んで送信する（jellyfish://type）
@@ -285,13 +326,13 @@ final class JellyManager {
         guard #available(macOS 26.0, *), listener?.agent == c.record.id, let t = listener?.object as? AudioTranscriber else { return nil }
         let s = Int(Date().timeIntervalSince(t.startedAt))
         let last = t.partial.isEmpty ? (t.lines.last.map { String($0.dropFirst(8)) } ?? "") : t.partial
-        return String(format: "🎧 聞き取り中 %d:%02d", s / 60, s % 60) + (last.isEmpty ? "" : " — " + String(last.suffix(40)))
+        return L("🎧 聞き取り中 %@", String(format: "%d:%02d", s / 60, s % 60)) + (last.isEmpty ? "" : " — " + String(last.suffix(40)))
     }
 
     /// 聞き取りの開始・停止。止めたら文字起こしをチャットの添付にする（「議事録にして」「英訳して」などと続けて頼める）
     func toggleListening(_ c: JellyController) {
         guard #available(macOS 26.0, *) else {
-            alert("聞き取りには macOS 26 以降が必要です", "")
+            alert(L("聞き取りには macOS 26 以降が必要です"), "")
             return
         }
         if let cur = listener, let t = cur.object as? AudioTranscriber {
@@ -303,7 +344,7 @@ final class JellyManager {
                 if let ctl = self.controllers.first(where: { $0.record.id == agent }) {
                     self.openChat(for: ctl)
                     self.chats[agent]?.addAttachments([t.fileURL])
-                    self.chats[agent]?.setInputHint("文字起こしを添付しました。例:「議事録にまとめて」「英語に翻訳して」「要点と ToDo を出して」")
+                    self.chats[agent]?.setInputHint(L("文字起こしを添付しました。例:「議事録にまとめて」「英語に翻訳して」「要点と ToDo を出して」"))
                 }
                 self.onChange?()
             }
@@ -321,7 +362,7 @@ final class JellyManager {
                 self.lastTranscript[id] = t.fileURL
             } catch {
                 if self.listener?.agent == id { self.listener = nil }
-                self.alert("聞き取りを始められませんでした", error.localizedDescription)
+                self.alert(L("聞き取りを始められませんでした"), error.localizedDescription)
             }
             self.chats[id]?.refresh()
             self.onChange?()
@@ -369,11 +410,11 @@ final class JellyManager {
             return
         }
         let a = NSAlert()
-        a.messageText = "\(c.record.title) はまだ作業中です"
-        a.informativeText = "クラゲを消しても、作業はバックグラウンドで最後まで続けられます。結果は履歴（ログ）に残ります。"
-        a.addButton(withTitle: "作業は続けて、クラゲだけ消す")
-        a.addButton(withTitle: "作業をキャンセルして消す")
-        a.addButton(withTitle: "やめる")
+        a.messageText = L("%@ はまだ作業中です", c.record.title)
+        a.informativeText = L("クラゲを消しても、作業はバックグラウンドで最後まで続けられます。結果は履歴（ログ）に残ります。")
+        a.addButton(withTitle: L("作業は続けて、クラゲだけ消す"))
+        a.addButton(withTitle: L("作業をキャンセルして消す"))
+        a.addButton(withTitle: L("やめる"))
         NSApp.activate(ignoringOtherApps: true)
         switch a.runModal() {
         case .alertFirstButtonReturn:
@@ -439,9 +480,9 @@ final class JellyManager {
     @discardableResult
     func rename(_ c: JellyController, to raw: String) -> String? {
         let n = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if n.count > 24 { return "名前は 24 文字までです" }
+        if n.count > 24 { return L("名前は 24 文字までです") }
         if !n.isEmpty, let other = controllers.first(where: { $0 !== c && $0.record.title.lowercased() == n.lowercased() }) {
-            return "「\(n)」は \(other.record.color.name) のクラゲが使っています"
+            return L("「%@」は %@ のクラゲが使っています", n, other.record.color.name)
         }
         c.update { $0.name = n.isEmpty ? nil : n }
         c.panel.title = c.record.title
@@ -453,20 +494,20 @@ final class JellyManager {
 
     func promptRename(_ c: JellyController) {
         let a = NSAlert()
-        a.messageText = "\(c.record.title)（\(c.record.color.name)）の名前"
-        a.informativeText = "エージェント同士はこの名前で呼び合います。空にすると「Agent \(c.record.number)」に戻ります。"
+        a.messageText = L("%@（%@）の名前", c.record.title, c.record.color.name)
+        a.informativeText = L("エージェント同士はこの名前で呼び合います。空にすると「Agent %ld」に戻ります。", c.record.number)
         let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         f.stringValue = c.record.name ?? ""
         f.placeholderString = "Agent \(c.record.number)"
         a.accessoryView = f
-        a.addButton(withTitle: "変更")
-        a.addButton(withTitle: "キャンセル")
+        a.addButton(withTitle: L("変更"))
+        a.addButton(withTitle: L("キャンセル"))
         a.window.initialFirstResponder = f
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertFirstButtonReturn else { return }
         if let err = rename(c, to: f.stringValue) {
             let e = NSAlert()
-            e.messageText = "名前を変えられませんでした"
+            e.messageText = L("名前を変えられませんでした")
             e.informativeText = err
             e.runModal()
         }
@@ -475,12 +516,13 @@ final class JellyManager {
     // MARK: チーム
 
     /// エージェントが create_teammate で仲間を作る：呼んだクラゲの隣に出し、作業フォルダ・モデル・強さを引き継ぐ
-    func spawnTeammate(near parent: JellyController, name: String) -> JellyController? {
+    func spawnTeammate(near parent: JellyController, name: String, orgSpawned: Bool = false) -> JellyController? {
         guard controllers.count < TeamCoordinator.maxAgents else { return nil }
         if settings.allHidden { setAllHidden(false) }
         if parent.record.hidden { setHidden(parent, false) }
         var r = makeRecord()
         r.name = name
+        if orgSpawned { r.orgSpawned = true }
         r.parentID = parent.record.id
         r.depth = (parent.record.depth ?? 0) + 1
         r.origin = adjacentOrigin(near: parent)
@@ -758,22 +800,22 @@ final class JellyManager {
             items.append(h)
             items.append(.separator())
         }
-        items.append(ClosureMenuItem("チャットを開く…") { [weak self, weak c] in if let c { self?.openChat(for: c) } })
-        items.append(ClosureMenuItem("名前を変える…") { [weak self, weak c] in if let c { self?.promptRename(c) } })
+        items.append(ClosureMenuItem(L("チャットを開く…")) { [weak self, weak c] in if let c { self?.openChat(for: c) } })
+        items.append(ClosureMenuItem(L("名前を変える…")) { [weak self, weak c] in if let c { self?.promptRename(c) } })
         if let team, settings.teamEnabled {
             // ドラッグしなくても、離れたクラゲとつなげる
             let others = controllers.filter { $0 !== c && !$0.record.hidden && !team.isLinked(r.id, $0.record.id) }
             if !others.isEmpty {
-                let li = NSMenuItem(title: "つなぐ", action: nil, keyEquivalent: "")
+                let li = NSMenuItem(title: L("つなぐ"), action: nil, keyEquivalent: "")
                 let lm = NSMenu()
                 lm.autoenablesItems = false
                 for o in others {
                     let oid = o.record.id
-                    let it = ClosureMenuItem("🔗 \(o.record.title) とつなぐ", image: MenuImages.dot(o.record.color, state: o.record.state)) {
+                    let it = ClosureMenuItem(L("🔗 %@ とつなぐ", o.record.title), image: MenuImages.dot(o.record.color, state: o.record.state)) {
                         [weak team] in team?.link(r.id, oid)
                     }
                     it.isEnabled = team.canLink(r.id, oid)
-                    if !it.isEnabled { it.toolTip = "チームは \(TeamCoordinator.maxTeamSize) 体まで" }
+                    if !it.isEnabled { it.toolTip = L("チームは %ld 体まで", TeamCoordinator.maxTeamSize) }
                     lm.addItem(it)
                 }
                 li.submenu = lm
@@ -781,38 +823,38 @@ final class JellyManager {
             }
         }
         if let team, !team.neighbors(r.id).isEmpty {
-            let li = NSMenuItem(title: "つながり", action: nil, keyEquivalent: "")
+            let li = NSMenuItem(title: L("つながり"), action: nil, keyEquivalent: "")
             let lm = NSMenu()
             lm.autoenablesItems = false
             if let p = team.pendingDescription(for: r.id) { lm.addItem(.header(p)) }
             for n in team.neighbors(r.id) {
-                lm.addItem(ClosureMenuItem("✂︎ \(team.name(n)) とのつながりを切る") { [weak team] in team?.unlink(r.id, n) })
+                lm.addItem(ClosureMenuItem(L("✂︎ %@ とのつながりを切る", team.name(n))) { [weak team] in team?.unlink(r.id, n) })
             }
             lm.addItem(.separator())
-            lm.addItem(ClosureMenuItem("すべてのつながりを切る") { [weak team] in team?.unlinkAll(r.id) })
+            lm.addItem(ClosureMenuItem(L("すべてのつながりを切る")) { [weak team] in team?.unlinkAll(r.id) })
             li.submenu = lm
             items.append(li)
         }
         if let rt = runtimes[c.record.id], rt.isRunning {
-            items.append(ClosureMenuItem("作業をキャンセル") { [weak rt] in rt?.cancel() })
+            items.append(ClosureMenuItem(L("作業をキャンセル")) { [weak rt] in rt?.cancel() })
         }
-        let preview = NSMenuItem(title: "状態プレビュー", action: nil, keyEquivalent: "")
+        let preview = NSMenuItem(title: L("状態プレビュー"), action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for s in AgentState.allCases {
-            sub.addItem(ClosureMenuItem("\(s.label)（\(s.englishLabel)）", checked: r.state == s) { [weak c] in
+            sub.addItem(ClosureMenuItem(L("%@（%@）", s.label, s.englishLabel), checked: r.state == s) { [weak c] in
                 c?.setState(s)
             })
         }
         preview.submenu = sub
         items.append(preview)
         if r.hidden {
-            items.append(ClosureMenuItem("表示する") { [weak self, weak c] in if let c { self?.setHidden(c, false) } })
+            items.append(ClosureMenuItem(L("表示する")) { [weak self, weak c] in if let c { self?.setHidden(c, false) } })
         } else {
-            items.append(ClosureMenuItem("このクラゲを隠す") { [weak self, weak c] in if let c { self?.setHidden(c, true) } })
+            items.append(ClosureMenuItem(L("このクラゲを隠す")) { [weak self, weak c] in if let c { self?.setHidden(c, true) } })
         }
-        items.append(ClosureMenuItem("定位置に戻す") { [weak self, weak c] in if let c { self?.resetPosition(c) } })
+        items.append(ClosureMenuItem(L("定位置に戻す")) { [weak self, weak c] in if let c { self?.resetPosition(c) } })
         items.append(.separator())
-        items.append(ClosureMenuItem("このクラゲを削除") { [weak self, weak c] in if let c { self?.requestRemove(c) } })
+        items.append(ClosureMenuItem(L("このクラゲを削除")) { [weak self, weak c] in if let c { self?.requestRemove(c) } })
         return items
     }
 

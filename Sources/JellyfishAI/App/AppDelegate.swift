@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
     private var pendingURLs: [URL] = []
     private var termSource: DispatchSourceSignal?
+    private var urlThrottle = URLRoutes.Throttle()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 二重起動の防止（2つ目は即終了。URL は LaunchServices が既存側へ渡す）
@@ -32,10 +33,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         term.resume()
         termSource = term
 
+        // 自動化（デモ録画）用の合言葉を、URL を受け付ける前に用意する（普段は前回の残りを消すだけ）
+        if URLRoutes.automationToken != nil { AppLog.write("automation mode: jellyfish:// with token accepted") }
+
         ShellEnvironment.shared.prefetch()
         DispatchQueue.global(qos: .utility).async { DataJanitor.cleanUp(dataDir: AppPaths.dataDir) }
-        installMainMenu()
         let store = Store()
+        // 表示の言語は、メニューやウィンドウを作る前に決める
+        L10n.setting = store.loadSettings().language
+        installMainMenu()
+        // 表示の言語を変えたら、メインメニュー（編集・ウインドウ）も作り直す
+        NotificationCenter.default.addObserver(forName: JellyManager.languageChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.installMainMenu()
+        }
         // 初めての起動（データフォルダにまだクラゲの記録がない）なら、使い方と権限の案内を出す
         let firstLaunch = !store.hasSavedJellies
         manager = JellyManager(store: store)
@@ -80,30 +90,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.keyEquivalentModifierMask = mods
             return i
         }
-        let about = NSMenuItem(title: "Jellyfish AI について", action: #selector(showAbout), keyEquivalent: "")
+        let about = NSMenuItem(title: L("Jellyfish AI について"), action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         sub("Jellyfish AI", [
             about,
             .separator(),
-            item("Jellyfish AI を隠す", #selector(NSApplication.hide(_:)), "h"),
+            item(L("Jellyfish AI を隠す"), #selector(NSApplication.hide(_:)), "h"),
             .separator(),
-            item("Jellyfish AI を終了", #selector(NSApplication.terminate(_:)), "q"),
+            item(L("Jellyfish AI を終了"), #selector(NSApplication.terminate(_:)), "q"),
         ])
-        sub("編集", [
-            item("取り消す", Selector(("undo:")), "z"),
-            item("やり直す", Selector(("redo:")), "z", [.command, .shift]),
+        sub(L("編集"), [
+            item(L("取り消す"), Selector(("undo:")), "z"),
+            item(L("やり直す"), Selector(("redo:")), "z", [.command, .shift]),
             .separator(),
-            item("カット", #selector(NSText.cut(_:)), "x"),
-            item("コピー", #selector(NSText.copy(_:)), "c"),
-            item("ペースト", #selector(NSText.paste(_:)), "v"),
-            item("すべてを選択", #selector(NSText.selectAll(_:)), "a"),
+            item(L("カット"), #selector(NSText.cut(_:)), "x"),
+            item(L("コピー"), #selector(NSText.copy(_:)), "c"),
+            item(L("ペースト"), #selector(NSText.paste(_:)), "v"),
+            item(L("すべてを選択"), #selector(NSText.selectAll(_:)), "a"),
         ])
-        sub("ウインドウ", [
-            item("しまう", #selector(NSWindow.performMiniaturize(_:)), "m"),
-            item("拡大／縮小", #selector(NSWindow.performZoom(_:)), ""),
-            item("フルスクリーンにする", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
+        sub(L("ウインドウ"), [
+            item(L("しまう"), #selector(NSWindow.performMiniaturize(_:)), "m"),
+            item(L("拡大／縮小"), #selector(NSWindow.performZoom(_:)), ""),
+            item(L("フルスクリーンにする"), #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
             .separator(),
-            item("閉じる", #selector(NSWindow.performClose(_:)), "w"),
+            item(L("閉じる"), #selector(NSWindow.performClose(_:)), "w"),
         ])
         NSApp.mainMenu = main
     }
@@ -127,9 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// jellyfish:// URL スキーム（ショートカット.app・Raycast 等からの操作と、自動テスト・デモ録画用）
-    /// 外から誰でも呼べる（Web ページのリンクからも開ける）ので、普段は URLRoutes.publicRoutes だけ受け付ける。
+    /// 外から誰でも呼べる（Web ページのリンクからも開ける）ので、普段は URLRoutes.publicRoutes だけ受け付ける
+    /// （続けざまの呼び出しは間引き、新しいクラゲは上限まで）。
     /// 指示の送信・PC 操作の許可・作業フォルダの変更・削除などは、環境変数 JELLYFISH_AUTOMATION=1 を付けて
-    /// 起動したとき（scripts/demo/record.sh）だけ動く
+    /// 起動し（scripts/demo/record.sh）、データフォルダの automation.token の合言葉を token=… で付けたときだけ動く
     ///   jellyfish://new[?chat=0&cwd=~/dir]    新しいクラゲ（chat=0 で入力欄を開かない、cwd で作業フォルダ）
     ///   jellyfish://type?agent=2&text=...     入力欄に 1 文字ずつ打ち込んで送信（デモ録画用、cps=打鍵/秒）
     ///   jellyfish://press?agent=2             長押しと同じ動作（デモ録画用）
@@ -151,18 +162,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handle(_ url: URL) {
-        guard URLRoutes.allowed(url, automation: URLRoutes.automationEnabled) else {
-            if url.scheme == "jellyfish" { AppLog.write("url refused: \(url.host ?? "")（JELLYFISH_AUTOMATION=1 で起動したときだけ受け付ける）") }
+        let host = String((url.host ?? "").prefix(32))
+        guard URLRoutes.allowed(url, automationToken: URLRoutes.automationToken) else {
+            if url.scheme == "jellyfish" { AppLog.write("url refused: \(host)（公開以外の操作は JELLYFISH_AUTOMATION=1 と合言葉が必要）") }
             return
         }
-        if url.host != "debug" { AppLog.write("url: \(url.host ?? "")") }
+        let automation = URLRoutes.isAutomation(url, token: URLRoutes.automationToken)
+        if !automation {
+            guard urlThrottle.allow(host.lowercased()) else { AppLog.write("url throttled: \(host)"); return }
+            if host.lowercased() == "new", manager.controllers.count >= TeamCoordinator.maxAgents {
+                AppLog.write("url refused: new（クラゲが上限の \(TeamCoordinator.maxAgents) 体）")
+                return
+            }
+        }
+        if url.host != "debug" { AppLog.write("url: \(host)") }
         let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func param(_ k: String) -> String? { q.first { $0.name == k }?.value }
         let agent = param("agent").flatMap(Int.init).flatMap { manager.controller(number: $0) }
         switch url.host ?? "" {
         case "new":
             // new?chat=0 で入力欄を開かない、new?cwd=~/foo で作業フォルダを指定（デモ・テスト用）
-            let c = manager.spawn(openChat: param("chat") != "0")
+            // 外のアプリ・Web ページからのときは、チャットを出してもキーボードの入力先は奪わない
+            let c = manager.spawn(openChat: param("chat") != "0", activate: automation)
             if let p = param("cwd"), let rt = manager.runtime(for: c) {
                 rt.changeFolder(URL(fileURLWithPath: (p as NSString).expandingTildeInPath, isDirectory: true))
             }
@@ -219,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 AppLog.write("prompt: agent/text/runtime missing agent=\(agent?.record.number ?? -1)")
             }
         case "open":
-            if let c = agent { manager.openChat(for: c) }
+            if let c = agent { manager.openChat(for: c, activate: automation) }
         case "debug":
             for c in manager.controllers {
                 let r = c.record
@@ -246,14 +267,54 @@ enum URLRoutes {
 
     static var automationEnabled: Bool { ProcessInfo.processInfo.environment["JELLYFISH_AUTOMATION"] == "1" }
 
-    static func allowed(_ url: URL, automation: Bool) -> Bool {
+    /// 自動化（JELLYFISH_AUTOMATION=1）で起動したときだけ作る合言葉。データフォルダの automation.token（本人だけが読める）に書き、
+    /// URL に token=… が付いているときだけ公開以外の操作を受け付ける。環境変数が何かの拍子に付いたままになっても、
+    /// 合言葉を読めない Web ページからは公開の操作しかできない
+    static let automationToken: String? = {
+        let url = AppPaths.dataDir.appendingPathComponent("automation.token")
+        guard automationEnabled else {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+        // SystemRandomNumberGenerator は macOS では暗号用の乱数（arc4random_buf）
+        var rng = SystemRandomNumberGenerator()
+        let token = (0..<24).map { _ in String(format: "%02x", UInt8.random(in: 0...255, using: &rng)) }.joined()
+        try? FileManager.default.removeItem(at: url)
+        guard FileManager.default.createFile(atPath: url.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600]) else { return nil }
+        return token
+    }()
+
+    static func allowed(_ url: URL, automationToken: String?) -> Bool {
         guard url.scheme?.lowercased() == "jellyfish" else { return false }
-        if automation { return true }
+        if isAutomation(url, token: automationToken) { return true }
         let host = (url.host ?? "").lowercased()
         guard publicRoutes.contains(host) else { return false }
         // 作業フォルダの指定は自動化のときだけ
         let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         if host == "new", q.contains(where: { $0.name == "cwd" }) { return false }
         return true
+    }
+
+    /// 合言葉つきの（scripts/demo の録画からの）呼び出しか
+    static func isAutomation(_ url: URL, token: String?) -> Bool {
+        guard let token, !token.isEmpty else { return false }
+        let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        guard let given = q.first(where: { $0.name == "token" })?.value else { return false }
+        // 長さと中身を、途中で抜けずに比べる
+        let a = Array(given.utf8), b = Array(token.utf8)
+        guard a.count == b.count else { return false }
+        return zip(a, b).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
+    }
+
+    /// 外から続けざまに呼ばれても困らないように（Web ページが jellyfish://new を繰り返し開くなど）。
+    /// 新しいクラゲは 3 秒に 1 回、それ以外の操作は 0.3 秒に 1 回まで
+    struct Throttle {
+        private var last: [String: Date] = [:]
+        mutating func allow(_ host: String, now: Date = Date()) -> Bool {
+            let gap: TimeInterval = host == "new" ? 3 : 0.3
+            if let t = last[host], now.timeIntervalSince(t) < gap { return false }
+            last[host] = now
+            return true
+        }
     }
 }

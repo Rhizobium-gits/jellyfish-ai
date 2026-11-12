@@ -6,7 +6,11 @@ import Testing
 // 画面・claude・権限を使わない判定ロジックのテスト
 
 @Suite struct URLRouteTests {
-    func allowed(_ s: String, automation: Bool = false) -> Bool { URLRoutes.allowed(URL(string: s)!, automation: automation) }
+    static let token = "0123456789abcdef0123456789abcdef0123456789abcdef"
+    func allowed(_ s: String, automation: Bool = false) -> Bool {
+        URLRoutes.allowed(URL(string: s)!, automationToken: automation ? Self.token : nil)
+    }
+    func withToken(_ s: String, _ t: String = token) -> String { s + (s.contains("?") ? "&" : "?") + "token=" + t }
 
     @Test func publicRoutesAreAllowed() {
         for r in ["new", "toggle", "show", "hide", "arrange", "open?agent=1", "style?v=pixel", "scale?v=1.2"] {
@@ -14,18 +18,86 @@ import Testing
         }
     }
 
-    @Test func dangerousRoutesNeedAutomation() {
-        for r in ["prompt?agent=1&text=hi", "type?agent=1&text=hi", "pc?agent=1&on=1", "folder?agent=1&path=/",
-                  "remove?agent=1", "login?on=1", "new?cwd=/tmp", "PROMPT?agent=1&text=hi", "New?cwd=/tmp",
-                  "rename?agent=1&name=x", "link?a=1&b=2", "move?agent=1&dx=1", "press?agent=1", "debug"] {
-            #expect(!allowed("jellyfish://\(r)"), "\(r)")
-            #expect(allowed("jellyfish://\(r)", automation: true), "\(r)")
+    static let dangerous = ["prompt?agent=1&text=hi", "type?agent=1&text=hi", "pc?agent=1&on=1", "folder?agent=1&path=/",
+                            "remove?agent=1", "login?on=1", "new?cwd=/tmp", "PROMPT?agent=1&text=hi", "New?cwd=/tmp",
+                            "rename?agent=1&name=x", "link?a=1&b=2", "move?agent=1&dx=1", "press?agent=1", "debug"]
+
+    @Test func dangerousRoutesNeedAutomationAndToken() {
+        for r in Self.dangerous {
+            let u = "jellyfish://\(r)"
+            #expect(!allowed(u), "\(r)")
+            // 自動化モードでも、合言葉が無い・違う（Web ページから）なら受け付けない
+            #expect(!allowed(u, automation: true), "\(r)")
+            #expect(!allowed(withToken(u, String(Self.token.dropLast()) + "0"), automation: true), "\(r)")
+            #expect(!allowed(withToken(u, "short"), automation: true), "\(r)")
+            #expect(!allowed(withToken(u, ""), automation: true), "\(r)")
+            #expect(allowed(withToken(u), automation: true), "\(r)")
+            // 合言葉を知っていても、自動化モードでなければ受け付けない
+            #expect(!allowed(withToken(u)), "\(r)")
         }
     }
 
     @Test func otherSchemesAreRefused() {
         #expect(!allowed("https://example.com/new"))
-        #expect(!allowed("https://example.com/new", automation: true))
+        #expect(!allowed(withToken("https://example.com/new"), automation: true))
+    }
+
+    @Test func repeatedCallsAreThrottled() {
+        var t = URLRoutes.Throttle()
+        let t0 = Date()
+        let calls: [(String, Double)] = [("new", 0), ("new", 1), ("toggle", 1), ("toggle", 1.1), ("new", 3.5)]
+        let got = calls.map { t.allow($0.0, now: t0.addingTimeInterval($0.1)) }
+        #expect(got == [true, false, true, false, true])
+    }
+}
+
+@Suite struct PermissionModeTests {
+    // claude 2.1.322 の --help の該当箇所
+    static let help = """
+      --permission-mode <mode>              Permission mode to use for the session
+                                            (choices: "acceptEdits", "auto",
+                                            "bypassPermissions", "manual",
+                                            "dontAsk", "plan")
+    """
+    func install(_ modes: [String], auto: Bool = true) -> ClaudeInstall {
+        var i = ClaudeInstall(url: URL(fileURLWithPath: "/usr/bin/true"), version: [2, 1, 322], versionString: "2.1.322",
+                              supportsAutoMode: auto, supportsPermissionPrompts: true, supportsEffort: true)
+        i.permissionModes = modes
+        return i
+    }
+
+    @Test func readsChoicesFromHelp() {
+        #expect(ClaudeLocator.permissionModes(fromHelp: Self.help) == ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"])
+        #expect(ClaudeLocator.permissionModes(fromHelp: "  --model <model>  Model") == [])
+    }
+
+    @Test func bypassIsNeverUsed() {
+        let i = install(ClaudeLocator.permissionModes(fromHelp: Self.help))
+        #expect(ClaudeCodeBackend.effectiveMode("bypassPermissions", install: i) == "auto")
+        #expect(ClaudeCodeBackend.refusedSetting("bypassPermissions", install: i))
+        // --help が読めなかったときも
+        #expect(ClaudeCodeBackend.effectiveMode("bypassPermissions", install: install([])) == "auto")
+        #expect(ClaudeCodeBackend.effectiveMode("bypassPermissions", install: install([], auto: false)) == "acceptEdits")
+    }
+
+    @Test func unknownModesFallBackToAuto() {
+        let i = install(ClaudeLocator.permissionModes(fromHelp: Self.help))
+        for m in ["BypassPermissions", "yolo", "", "auto --dangerously-skip-permissions"] {
+            #expect(ClaudeCodeBackend.effectiveMode(m, install: i) == "auto", "\(m)")
+            #expect(ClaudeCodeBackend.refusedSetting(m, install: i), "\(m)")
+        }
+    }
+
+    @Test func listedSafeModesAreKept() {
+        let i = install(ClaudeLocator.permissionModes(fromHelp: Self.help))
+        for m in ["auto", "acceptEdits", "manual", "dontAsk", "plan"] {
+            #expect(ClaudeCodeBackend.effectiveMode(m, install: i) == m)
+            #expect(!ClaudeCodeBackend.refusedSetting(m, install: i))
+        }
+        // auto の無い古い版は acceptEdits（設定を拒んだわけではない）
+        let old = install(["acceptEdits", "bypassPermissions", "default", "plan"], auto: false)
+        #expect(ClaudeCodeBackend.effectiveMode("auto", install: old) == "acceptEdits")
+        #expect(!ClaudeCodeBackend.refusedSetting("auto", install: old))
     }
 }
 

@@ -104,7 +104,7 @@ final class BusConnection {
     func start() {
         let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         src.setEventHandler { [weak self] in self?.readAvailable() }
-        src.setCancelHandler { [fd] in close(fd) }
+        src.setCancelHandler { [fd] in Darwin.close(fd) }
         src.resume()
         source = src
     }
@@ -143,6 +143,9 @@ final class BusConnection {
 
     var isClosed: Bool { closed }
 
+    /// アプリ側から閉じる（どのスレッドからでもよい）
+    func close() { queue.async { [weak self] in self?.shutdown() } }
+
     private func shutdown() {
         guard !closed else { return }
         closed = true
@@ -171,7 +174,7 @@ enum TeamBridge {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         guard fd >= 0, ok == 0 else {
-            FileHandle.standardError.write("Jellyfish AI に接続できません（アプリが起動していない可能性）\n".data(using: .utf8)!)
+            FileHandle.standardError.write((L("Jellyfish AI に接続できません（アプリが起動していない可能性）") + "\n").data(using: .utf8)!)
             return 1
         }
         var one: Int32 = 1

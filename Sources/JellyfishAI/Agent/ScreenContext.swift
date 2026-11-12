@@ -9,9 +9,9 @@ enum ScreenMode: String, Codable, CaseIterable {
     case auto, always, never
     var label: String {
         switch self {
-        case .auto: return "画面: 自動判定"
-        case .always: return "画面: 毎回添付"
-        case .never: return "画面: 添付しない"
+        case .auto: return L("画面: 自動判定")
+        case .always: return L("画面: 毎回添付")
+        case .never: return L("画面: 添付しない")
         }
     }
 }
@@ -21,7 +21,7 @@ enum ScreenTarget: String, Codable, CaseIterable {
 }
 
 enum ScreenIntent {
-    /// 画面を指す言い回し（日本語・英語）。
+    /// 画面を指す言い回し（日本語・英語・中国語）。
     /// 「一覧を表示して」「ポートが開いているか」「このコードを直して」（コードを貼った場合）のような普通の指示で
     /// 画面全体を撮って送らないよう、画面・ウィンドウ・ページをはっきり指すものだけにしている
     static let phrases: [String] = [
@@ -30,6 +30,10 @@ enum ScreenIntent {
         "このウィンドウ", "このページ", "このサイト", "このタブ", "このスライド", "スクショ", "スクリーンショット",
         "this screen", "my screen", "on screen", "on the screen", "screenshot", "currently open",
         "i'm looking at", "im looking at", "this page", "this window",
+        "i’m looking at", "what am i looking at", "this tab", "this slide",
+        "这个屏幕", "当前屏幕", "我的屏幕", "屏幕上", "屏幕中", "这个画面", "当前画面",
+        "这个窗口", "这个页面", "这个网页", "这个标签页", "这张幻灯片", "截图", "截屏",
+        "正在显示", "当前打开", "我正在看",
     ]
 
     static func refersToScreen(_ text: String) -> Bool {
@@ -50,10 +54,12 @@ struct ScreenContext {
     var promptSuffix: String {
         guard !images.isEmpty else { return "" }
         var s = ScreenContext.marker + "\n"
-        s += "ユーザーがこの指示を出した時点の画面のスクリーンショット:\n"
+        s += L("ユーザーがこの指示を出した時点の画面のスクリーンショット:") + "\n"
         for u in images { s += "- \(u.path)\n" }
-        if let a = appName { s += "前面のアプリ: \(a)" + (windowTitle.map { "「\($0)」" } ?? "") + "\n" }
-        s += "「この画面」「表示されている〜」などはこの画像の内容を指しています。まず Read ツールで画像を開いて内容（アプリ・ウィンドウ・テキスト・コード・グラフ・エラーなど）を確認してから作業してください。"
+        if let a = appName {
+            s += (windowTitle.map { L("前面のアプリ: %@「%@」", a, $0) } ?? L("前面のアプリ: %@", a)) + "\n"
+        }
+        s += L("「この画面」「表示されている〜」などはこの画像の内容を指しています。まず Read ツールで画像を開いて内容（アプリ・ウィンドウ・テキスト・コード・グラフ・エラーなど）を確認してから作業してください。")
         return s
     }
 
@@ -65,7 +71,7 @@ struct ScreenContext {
         if !CGPreflightScreenCaptureAccess() {
             _ = CGRequestScreenCaptureAccess()   // 初回はシステムの許可ダイアログが出る
             if !CGPreflightScreenCaptureAccess() {
-                ctx.note = "画面収録の権限がないため画面を添付できませんでした（システム設定 > プライバシーとセキュリティ > 画面収録 で Jellyfish AI を許可）"
+                ctx.note = L("画面収録の権限がないため画面を添付できませんでした（システム設定 > プライバシーとセキュリティ > 画面収録 で Jellyfish AI を許可）")
                 return ctx
             }
         }
@@ -96,7 +102,7 @@ struct ScreenContext {
                 if write(img, to: url) { ctx.images.append(url) }
             }
         } catch {
-            ctx.note = "画面の取得に失敗しました: \(error.localizedDescription)"
+            ctx.note = L("画面の取得に失敗しました: %@", error.localizedDescription)
         }
         return ctx
     }

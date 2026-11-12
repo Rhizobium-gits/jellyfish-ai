@@ -31,3 +31,14 @@ notarized by Apple, macOS blocks the first launch. To allow it, close the
 dialog, open System Settings > Privacy & Security, and click "Open Anyway"
 next to the message about JellyfishAI. Requires macOS 14+ and Claude Code
 (the `claude` CLI) installed and signed in.
+Switch the display language from the menu bar jellyfish > Language.
+Details: https://github.com/Rhizobium-gits/jellyfish-ai/blob/main/README.en.md
+
+
+安装 Jellyfish AI
+-----------------
+把“JellyfishAI”拖到“Applications”（应用程序）后打开。由于没有经过 Apple 公证，
+首次打开会被 macOS 阻止。请关闭对话框，打开 系统设置 > 隐私与安全性，
+在关于 JellyfishAI 的提示旁点击“仍要打开”。需要 macOS 14 及以上，并已安装、
+登录 Claude Code（claude 命令）。可以在菜单栏的水母 > 语言 中切换显示语言。
+详情：https://github.com/Rhizobium-gits/jellyfish-ai/blob/main/README.zh-CN.md

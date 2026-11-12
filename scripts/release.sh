@@ -26,6 +26,7 @@ scripts/build.sh --universal
 
 APP="dist/JellyfishAI.app"
 codesign --verify --strict --verbose=2 "$APP"
+codesign -d --verbose=2 "$APP" 2>&1 | grep -q 'flags=.*runtime' || { echo "Hardened Runtime が付いていません" >&2; exit 1; }
 ARCHS="$(lipo -archs "$APP/Contents/MacOS/JellyfishAI")"
 [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || { echo "universal ではありません: $ARCHS" >&2; exit 1; }
 
@@ -70,6 +71,22 @@ cat >> "$NOTES" <<NOTE
 エージェントは確認なしでファイルの作成・編集やコマンドの実行を行い（Claude Code の Auto モード）、あなたの Claude Code の使用量を消費します。新しい版に入れ替えたときは、画面収録・アクセシビリティの許可をもう一度求められることがあります。
 
 macOS 14 以降・Apple シリコン / Intel 両対応（universal）。チェックサムは SHA256SUMS.txt。
+
+### Install (English)
+
+1. Open \`JellyfishAI-$VERSION.dmg\` and drag JellyfishAI to Applications
+2. macOS blocks the first launch because the app is not notarized. Close the dialog and click **Open Anyway** in **System Settings › Privacy & Security**
+3. Install and sign in to [Claude Code](https://code.claude.com/docs/en/setup) first
+
+Agents edit files and run commands without asking (Claude Code Auto mode) and use your Claude Code usage. Switch the display language from the menu bar jellyfish › 🌐 Language. See [README.en.md](https://github.com/Rhizobium-gits/jellyfish-ai/blob/main/README.en.md).
+
+### 安装（简体中文）
+
+1. 打开 \`JellyfishAI-$VERSION.dmg\`，把 JellyfishAI 拖到“应用程序”
+2. 由于没有经过 Apple 公证，首次打开会被 macOS 阻止。关闭对话框后，在 **系统设置 › 隐私与安全性** 中点击 **仍要打开**
+3. 请先安装并登录 [Claude Code](https://code.claude.com/docs/en/setup)
+
+智能体会在不经确认的情况下编辑文件、执行命令（Claude Code 的 Auto 模式），并消耗你的 Claude Code 用量。可以在菜单栏的水母 › 🌐 语言 中切换显示语言。详见 [README.zh-CN.md](https://github.com/Rhizobium-gits/jellyfish-ai/blob/main/README.zh-CN.md)。
 NOTE
 
 ls -la "$OUT"

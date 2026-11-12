@@ -24,7 +24,7 @@ enum LoginItem {
 
     /// 成功なら nil、失敗ならエラーメッセージ
     static func set(_ on: Bool) -> String? {
-        guard isAvailable else { return "アプリを .app として起動したときだけ設定できます" }
+        guard isAvailable else { return L("アプリを .app として起動したときだけ設定できます") }
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             return nil

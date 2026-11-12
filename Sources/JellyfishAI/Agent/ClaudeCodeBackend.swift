@@ -15,8 +15,28 @@ final class ClaudeCodeBackend: AgentBackend {
     /// 指定モードが auto でも、そのバージョンが auto を持たなければ acceptEdits に落とす（存在しないオプションは付けない）
     init(install: ClaudeInstall, permissionMode: String = "auto", model: String? = nil) {
         self.install = install
-        self.permissionMode = (permissionMode == "auto" && !install.supportsAutoMode) ? "acceptEdits" : permissionMode
+        self.permissionMode = Self.effectiveMode(permissionMode, install: install)
         self.model = model
+    }
+
+    /// 設定ファイル（settings.json）に書いてあっても使わないモード。Claude Code の安全判定がすべて外れるため。
+    /// settings.json はエージェントからも書き換えられるので、ここで止める（すべてのクラゲの権限が一度に広がらないように）
+    static let refusedModes: Set<String> = ["bypassPermissions"]
+
+    /// 実際に付ける --permission-mode。使わないモードや、その版の --help に無いモードは auto にする
+    static func effectiveMode(_ requested: String, install: ClaudeInstall) -> String {
+        let known = install.permissionModes
+        var m = requested
+        let listed = known.isEmpty ? ["auto", "acceptEdits", "plan"].contains(m) : known.contains(m)
+        if refusedModes.contains(m) || !listed { m = "auto" }
+        if m == "auto" && !install.supportsAutoMode { m = "acceptEdits" }
+        return m
+    }
+
+    /// 設定の permissionMode を使わずに置き換えたか（メニューの「実行ポリシー」に出す）
+    static func refusedSetting(_ requested: String, install: ClaudeInstall) -> Bool {
+        let m = effectiveMode(requested, install: install)
+        return m != requested && !(requested == "auto" && m == "acceptEdits")
     }
 
     var displayName: String { "Claude Code" }
@@ -29,6 +49,8 @@ final class ClaudeCodeBackend: AgentBackend {
              options: AgentRunOptions,
              onEvent: @escaping (AgentEvent) -> Void,
              onExit: @escaping (Int32, String) -> Void) throws -> AgentHandle {
+        // --resume / --session-id に渡す ID は UUID の形だけ（オプションとして解釈される文字列を渡さない）
+        guard UUID(uuidString: sessionID) != nil else { throw POSIXError(.EINVAL) }
         let p = Process()
         p.executableURL = executable
         var args = ["-p",
@@ -214,10 +236,12 @@ final class StreamJSONParser {
                 return one.count > 60 ? String(one.prefix(60)) + "…" : one
             }
             switch name.dropFirst("mcp__jellyfish__".count) {
-            case "assign_task": return "🤝 \(input?["to"] as? String ?? "仲間") に依頼: \(short(input?["task"] as? String))"
-            case "create_teammate": return "✨ 仲間「\(input?["name"] as? String ?? "")」を作る" + ((input?["task"] as? String).map { ": " + short($0) } ?? "")
-            case "wait_for_tasks": return "⏳ 仲間の結果を待っています"
-            case "list_team": return "👥 チームを確認"
+            case "assign_task": return L("🤝 %@ に依頼: %@", input?["to"] as? String ?? L("仲間"), short(input?["task"] as? String))
+            case "create_teammate":
+                let who = input?["name"] as? String ?? ""
+                return (input?["task"] as? String).map { L("✨ 仲間「%@」を作る: %@", who, short($0)) } ?? L("✨ 仲間「%@」を作る", who)
+            case "wait_for_tasks": return L("⏳ 仲間の結果を待っています")
+            case "list_team": return L("👥 チームを確認")
             default: break
             }
         }

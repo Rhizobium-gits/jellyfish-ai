@@ -12,12 +12,12 @@ enum AgentState: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .idle: return "待機"
-        case .thinking: return "思考中"
-        case .working: return "作業中"
-        case .completed: return "完了"
-        case .error: return "エラー"
-        case .cancelled: return "キャンセル"
+        case .idle: return L("待機")
+        case .thinking: return L("思考中")
+        case .working: return L("作業中")
+        case .completed: return L("完了")
+        case .error: return L("エラー")
+        case .cancelled: return L("キャンセル済み")
         }
     }
 

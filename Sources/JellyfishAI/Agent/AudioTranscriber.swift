@@ -48,10 +48,10 @@ final class AudioTranscriber: NSObject, SCStreamOutput, SCStreamDelegate, @unche
         guard CGPreflightScreenCaptureAccess() else {
             _ = CGRequestScreenCaptureAccess()
             throw NSError(domain: "Jellyfish", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                "システムの音を拾うには画面収録の権限が必要です（システム設定 › プライバシーとセキュリティ › 画面収録 で Jellyfish AI を許可）"])
+                L("システムの音を拾うには画面収録の権限が必要です（システム設定 › プライバシーとセキュリティ › 画面収録 で Jellyfish AI を許可）")])
         }
         guard let loc = await AudioTranscriber.locale(preferred: language) else {
-            throw NSError(domain: "Jellyfish", code: 2, userInfo: [NSLocalizedDescriptionKey: "この Mac では音声の文字起こしに対応した言語が見つかりません"])
+            throw NSError(domain: "Jellyfish", code: 2, userInfo: [NSLocalizedDescriptionKey: L("この Mac では音声の文字起こしに対応した言語が見つかりません")])
         }
         let transcriber = SpeechTranscriber(locale: loc, preset: .progressiveTranscription)
         if let req = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
@@ -64,7 +64,7 @@ final class AudioTranscriber: NSObject, SCStreamOutput, SCStreamDelegate, @unche
         analyzer = an
         try await an.start(inputSequence: seq)
         startedAt = Date()
-        write("# 文字起こし \(ISO8601DateFormatter().string(from: startedAt))（\(loc.identifier)、システムの音）\n")
+        write(L("# 文字起こし %@（%@、システムの音）", ISO8601DateFormatter().string(from: startedAt), loc.identifier) + "\n")
 
         resultsTask = Task { [weak self] in
             do {
@@ -90,7 +90,7 @@ final class AudioTranscriber: NSObject, SCStreamOutput, SCStreamDelegate, @unche
         // 音だけ欲しいので映像は最小（2×2・1fps）
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
-            throw NSError(domain: "Jellyfish", code: 3, userInfo: [NSLocalizedDescriptionKey: "ディスプレイが見つかりません"])
+            throw NSError(domain: "Jellyfish", code: 3, userInfo: [NSLocalizedDescriptionKey: L("ディスプレイが見つかりません")])
         }
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
         let cfg = SCStreamConfiguration()
@@ -119,7 +119,7 @@ final class AudioTranscriber: NSObject, SCStreamOutput, SCStreamDelegate, @unche
         try? await analyzer?.finalizeAndFinishThroughEndOfInput()
         _ = await resultsTask?.value
         let dur = Int(Date().timeIntervalSince(startedAt))
-        write(String(format: "\n# 終了（%d 分 %d 秒）\n", dur / 60, dur % 60))
+        write("\n" + L("# 終了（%ld 分 %ld 秒）", dur / 60, dur % 60) + "\n")
         try? handle?.close()
         AppLog.write("transcriber stopped lines=\(lines.count)")
         await MainActor.run { self.onUpdate?() }

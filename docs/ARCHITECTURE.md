@@ -44,7 +44,7 @@ Framer Motion / CSS Animation の役割は Core Animation が担う（アニメ�
   | `result` error / 結果なしで異常終了 | Error |
   | ユーザーのキャンセル（SIGINT → 3 秒後 SIGTERM） | Cancelled |
 
-- **権限（Auto Mode + Full Access）**：Claude Code 公式の `--permission-mode auto`。確認なしでファイル操作・コマンド実行を進め、認証情報の持ち出し・意図しない外部送信・取り返しのつかない操作などは Claude Code 側の安全判定が止める。`--permission-prompts none` で確認待ちのまま固まらない。オプションは起動時に `claude --help` で存在を確かめてから付ける（古い版で auto が無ければ acceptEdits に落とす）。OS の権限設定（画面収録・アクセシビリティ）は変更しない。
+- **権限（Auto Mode）**：Claude Code 公式の `--permission-mode auto`。`settings.json` の `permissionMode` は `--help` の choices にあるものだけ使い、`bypassPermissions` は使わない（`ClaudeCodeBackend.effectiveMode`）。確認なしでファイル操作・コマンド実行を進め、認証情報の持ち出し・意図しない外部送信・取り返しのつかない操作などは Claude Code 側の安全判定が止める。`--permission-prompts none` で確認待ちのまま固まらない。オプションは起動時に `claude --help` で存在を確かめてから付ける（古い版で auto が無ければ acceptEdits に落とす）。OS の権限設定（画面収録・アクセシビリティ）は変更しない。
 - **claude の検出**：PATH・`~/.local/bin`・Homebrew・VS Code/Cursor 拡張同梱版の `--version` を比べて最新を使う。
 - **環境変数**：GUI アプリは PATH が最小限なので、ログインシェルの環境を一度取り込んでエージェントに渡す。
 
@@ -68,6 +68,36 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 - **つながり**：無向の辺（links.json）。つながりの塊が 1 チームで、チーム内なら隣でなくても頼める（光は線をたどる最短経路を流れる）。ドラッグ中、中心どうしが体 1.5 個ぶん以内の最も近いクラゲを「つながる先」として、ドラッグ元の色の流れる点線・相手を囲む脈打つ輪・「離すと 〇〇 とつながる」の吹き出しで見せる（チームが 8 体を超えるなら赤）。離すと、線が体に隠れず ✂︎ も出せるよう、相手から体 1.6 個ぶんの空いた位置へ 0.22 秒で滑らせてからつなぐ。⇧ ドラッグはチーム全体を平行移動、⌥ を押したまま離すとそのクラゲのつながりを全部切る（修飾キーはドラッグ中もポインタ追跡で拾うので、マウスを止めたまま押しても表示が切り替わる）。右クリック › つなぐ で離れたクラゲともつなげる
 - **描画**：LinkOverlay（ディスプレイごとの透明な重ね窓、クラゲより 1 段下のレベル、クリックは素通し）。線は CAShapeLayer の点線、依頼が流れている間だけ lineDashPhase を流す。光は CAKeyframeAnimation。静止中はアニメーションが無いので CPU を使わない。✂︎ は線の近くにポインタがあるときだけ出る小さなクリック可能パネル
 - **上限**：1 チーム 8 体、全体 20 体、作成の深さ 2（ユーザーのクラゲ = 0）。毎ターンの system prompt に今のチームと残り枠を書く
+
+## 2.6 自律組織モード（Org/）
+
+```
+ユーザーの依頼 ─▶ TeamCoordinator.runConfig（ユーザーのターンだけ）
+                   └─ OrgLearner.begin：前の依頼への反応を読む → TaskFeatures → OrgPolicy.recommend → エピソードを始める
+                   └─ system prompt に「おすすめの形・組み方・ほかの候補・残り枠」
+リーダー ─▶ form_team(members[name, role, task, after], formation) ─▶ 仲間を作る / 同じ名前は使い続ける / 要らない仲間を片付ける
+                   └─ after のある依頼は blocked に置き、前の担当が全部終わったら結果を依頼文に付けて dispatch
+リーダーのターンの終わり ─▶ endEpisode：成果（状態・時間・費用・仲間の成否）→ OrgLearner.finish → 裏で進化・保存・レポート
+👍👎・再実行・キャンセル・次の指示の文 ─▶ OrgReaction ─▶ 点数（OrgReward）
+```
+
+- **考える部分は純粋な値の計算**（`Org/OrgModel.swift`。画面・ファイル・claude を使わないのでテストで確かめる）
+  - `OrgGenome`：形（solo / parallel / pipeline / ensemble / hierarchy）・人数・レビュー係の有無。`parallel3+r` のような key で記録する
+  - `TaskFeatures`：漢字・カタカナは 2 文字ずつ、英数字は単語にして重み（長さ 1 に正規化）、依頼の種類のタグ（日本語・英語・中国語のキーワード）と長さ（漢字かなは 2.5 文字ぶん）。似ている度合い = 語のコサイン 0.7 ＋ タグの Jaccard 0.3
+  - `OrgPolicy`：型ごとに Beta(α, β)。出発点は依頼の種類からの見込み p（α = 1+2p, β = 1+2(1-p)）。過去のエピソードは似ている度合い s で w = 4s² + 0.12（同じ形で人数違いは 0.3 倍）を足す。Thompson サンプリングで選び、人数 × 0.015 を割り引く。似た依頼（s ≥ 0.35）が無ければ novel
+  - `OrgReward`：完了 0.65・失敗 0.15・キャンセル 0.1、仲間の失敗・長時間で減点、👍 は 0.85 以上に、👎 は 0.25 以下に、再実行・キャンセル・「違う」で減点、「ありがとう」で加点
+  - `OrgEvolution`：2 件以上の型の上位 2 つから、人数 ±1・レビュー係の付け外し・形の変更の子を 1 つずつ。4 件以上でいちばんの型より 0.3 低い型は引退（solo は残す）。リーダーが自分で選んだ一覧にない形は取り込む
+- **OrgLearner**：状態はメインスレッド。保存（`org/episodes.json` 0600・`population.json`・`report.md`）と進化は 3 秒待ってまとめて `jellyfish.org`（utility）キューで。終了時は `flush` で書き切る。エピソードは 600 件まで
+- **片付け**：form_team が作った仲間は `JellyRecord.orgSpawned`。次の form_team で使わない、空いている仲間（とその下の仲間）を消す。リーダーが仲間を使わずにターンを終えたら、前の依頼の仲間を消す
+- **安全**：PC 操作のツールは仲間からの依頼のターンでは渡さない（`usesPCTools`）。仲間からの依頼の文では外部 MCP を読み込まない。学習は端末内だけで、どこにも送らない
+
+## 2.7 表示の言語（Localization/）
+
+- ソースには日本語をそのまま書き、`L("…")` / `L("…%@…", x)` で包む。`L10n.translate` が今の言語の表（`Strings+en.swift`・`Strings+zh.swift`、日本語 → 訳）を引き、無ければ日本語のまま
+- 訳の元は `l10n/en.json`・`l10n/zh.json`。`scripts/l10n.py` がソースから L() のキーを実行時の文字列そのもので取り出し（複数行の字下げ・エスケープ・コメントの中は除く）、抜け・%@ の数の違い・L() の中の `\( )` を調べ（CI）、Swift の表を作る
+- 言語を変えたら、メニュー（開くたびに作る）・メインメニュー（通知で作り直す）・開いているチャット（作り直す）に反映。エージェントへの案内（チーム・PC 操作・自律組織・ツールの説明）も L() を通すので、その言語で渡る
+- 履歴の読み取りに使う目印（`requestMarker`・`ScreenContext.marker`・`attachMarker`）と、判定に使う語の一覧（画面を指す言葉・依頼の種類・反応・色の別名）は訳さない。判定の語は 3 言語を並べる
+- `JELLYFISH_LANGUAGE=ja|en|zh` で設定より優先して決める（`scripts/test.sh` は ja に固定。CI の macOS は英語のため）
 
 ## 3. 保存場所
 

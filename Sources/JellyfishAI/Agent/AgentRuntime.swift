@@ -66,7 +66,7 @@ final class AgentRuntime {
 
     /// 「デスクトップの〇〇を開いて」で、中身をチャットに書き写すのではなく Mac のアプリで開くように
     /// （claude -p はターミナル向けなので、何も言わないと cat で中身を表示して終わることがある）
-    static let desktopNote = "# Jellyfish（Mac のデスクトップアプリ）から\nあなたは Mac のデスクトップに常駐するアプリ Jellyfish AI から呼ばれています。ユーザーがファイル・フォルダ・URL を「開いて」「表示して」「見せて」と頼んだときは、中身をチャットに書き写すのではなく、`open` コマンドで Mac の既定のアプリ（プレビュー・テキストエディット・Finder・ブラウザなど）で開いてください。開いたら「〇〇を〇〇で開きました」と短く伝えれば十分です（中身の説明や要約は頼まれたときだけ）。開くのはユーザーが頼んだものだけにしてください。"
+    static var desktopNote: String { L("# Jellyfish（Mac のデスクトップアプリ）から\nあなたは Mac のデスクトップに常駐するアプリ Jellyfish AI から呼ばれています。ユーザーがファイル・フォルダ・URL を「開いて」「表示して」「見せて」と頼んだときは、中身をチャットに書き写すのではなく、`open` コマンドで Mac の既定のアプリ（プレビュー・テキストエディット・Finder・ブラウザなど）で開いてください。開いたら「〇〇を〇〇で開きました」と短く伝えれば十分です（中身の説明や要約は頼まれたときだけ）。開くのはユーザーが頼んだものだけにしてください。") }
 
     init(agentID: UUID, baseDir: URL, backendProvider: @escaping () -> AgentBackend?) {
         self.agentID = agentID
@@ -75,8 +75,10 @@ final class AgentRuntime {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let meta = AgentRuntime.loadMeta(dir)
-        sessionID = meta?.sessionID ?? UUID().uuidString.lowercased()
-        sessionStarted = meta?.sessionStarted ?? false
+        // meta.json の ID が UUID でなければ（書き換えられたなど）新しいセッションにする（--resume に渡すため）
+        let validMeta = meta.map { UUID(uuidString: $0.sessionID) != nil } ?? false
+        sessionID = validMeta ? meta!.sessionID : UUID().uuidString.lowercased()
+        sessionStarted = validMeta ? (meta?.sessionStarted ?? false) : false
         cwd = URL(fileURLWithPath: meta?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, isDirectory: true)
         model = meta?.model
         effort = meta?.effort
@@ -86,7 +88,7 @@ final class AgentRuntime {
         // 前回アプリ終了時に実行中だったターンは中断扱い
         if let last = turns.last, !last.state.isTerminal && last.state != .error {
             turns[turns.count - 1].state = .error
-            turns[turns.count - 1].error = "アプリの終了により中断されました"
+            turns[turns.count - 1].error = L("アプリの終了により中断されました")
             turns[turns.count - 1].endedAt = Date()
             saveTurns()
         }
@@ -101,7 +103,7 @@ final class AgentRuntime {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isRunning else { return false }
         guard let backend = backendProvider() else {
-            lastError = "claude コマンドが見つかりません（設定で claudePath を指定してください）"
+            lastError = L("claude コマンドが見つかりません（設定で claudePath を指定してください）")
             turns.append(AgentTurn(prompt: text, startedAt: Date(), endedAt: Date(), state: .error, error: lastError))
             saveTurns()
             onState?(.error)
@@ -113,7 +115,7 @@ final class AgentRuntime {
         pendingTools = 0
         cancelRequested = false
         gotResult = false
-        activity = "考えています…"
+        activity = L("考えています…")
         lastError = nil
         onState?(.thinking)
         onUpdate?()
@@ -145,7 +147,7 @@ final class AgentRuntime {
                                      onExit: { [weak self] status, err in self?.exited(status: status, stderr: err) })
             AppLog.write("agent \(agentID.uuidString.prefix(8)) run resume=\(resume) model=\(model ?? "-") effort=\(effort ?? "-") external=\(opts.strictMCPConfig ? "off" : externalLoaded.joined(separator: ",")) cwd=\(cwd.path)")
         } catch {
-            finish(.error, error: "起動に失敗しました: \(error.localizedDescription)")
+            finish(.error, error: L("起動に失敗しました: %@", error.localizedDescription))
         }
         return true
     }
@@ -153,7 +155,7 @@ final class AgentRuntime {
     func cancel() {
         guard let h = handle else { return }
         cancelRequested = true
-        activity = "キャンセルしています…"
+        activity = L("キャンセルしています…")
         onUpdate?()
         h.cancel()
     }
@@ -175,7 +177,7 @@ final class AgentRuntime {
             self.activeModel = model
             self.permissionMode = mode
         case .thinking:
-            if pendingTools == 0 { setTurnState(.thinking); activity = "考えています…" }
+            if pendingTools == 0 { setTurnState(.thinking); activity = L("考えています…") }
         case .text(let t):
             if pendingTools == 0 { setTurnState(.thinking) }
             activity = String(t.replacingOccurrences(of: "\n", with: " ").prefix(90))
@@ -215,7 +217,7 @@ final class AgentRuntime {
         } else if gotResult {
             finish(last.state == .completed ? .completed : .error, error: last.error)
         } else {
-            let msg = stderr.isEmpty ? "プロセスが終了しました（コード \(status)）" : stderr
+            let msg = stderr.isEmpty ? L("プロセスが終了しました（コード %ld）", Int(status)) : stderr
             finish(.error, error: msg)
         }
     }
@@ -251,7 +253,7 @@ final class AgentRuntime {
         guard let f = sessionFile else { return nil }
         let m = (try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
         if let c = cachedTitle, c.date == m { return c.title }
-        guard let info = ClaudeSessions.info(file: f, modified: m), info.title != "（無題のセッション）" else { return nil }
+        guard let info = ClaudeSessions.info(file: f, modified: m), info.title != "（無題のセッション）", info.title != L("（無題のセッション）") else { return nil }
         cachedTitle = (m, info.title)
         return info.title
     }
@@ -270,7 +272,7 @@ final class AgentRuntime {
 
     /// 既存の Claude Code セッション（過去のプロジェクト）をこのクラゲで続ける
     func bind(to info: ClaudeSessionInfo) {
-        guard !isRunning else { return }
+        guard !isRunning, UUID(uuidString: info.id) != nil else { return }
         sessionID = info.id
         sessionStarted = true
         cachedSessionFile = info.file

@@ -81,6 +81,12 @@ struct ClaudeInstall {
     /// `--no-session-persistence`（/usage を読むだけの呼び出しをセッションに残さない）があるか
     var supportsAuthCommand = false
     var supportsNoSessionPersistence = false
+    /// `--permission-mode` の choices（--help に書いてあるもの。読めなければ空）
+    var permissionModes: [String] = []
+    /// /usage を読むだけの呼び出しで、ツールとプロジェクトの設定（フック）を読み込まないための
+    /// `--tools` と `--setting-sources` があるか
+    var supportsToolsFlag = false
+    var supportsSettingSources = false
 }
 
 /// claude 実行ファイルを探す。候補（PATH・標準インストール先・VS Code / Cursor 拡張に同梱）すべての
@@ -185,7 +191,18 @@ enum ClaudeLocator {
                              supportsAllowedTools: help.contains("--allowedTools"),
                              supportsStrictMCPConfig: help.contains("--strict-mcp-config"),
                              supportsAuthCommand: help.range(of: #"(?m)^\s+auth\s"#, options: .regularExpression) != nil,
-                             supportsNoSessionPersistence: help.contains("--no-session-persistence"))
+                             supportsNoSessionPersistence: help.contains("--no-session-persistence"),
+                             permissionModes: permissionModes(fromHelp: help),
+                             supportsToolsFlag: help.range(of: #"(?m)^\s+--tools\s"#, options: .regularExpression) != nil,
+                             supportsSettingSources: help.contains("--setting-sources"))
+    }
+
+    /// 「--permission-mode <mode> ... (choices: "acceptEdits", "auto", ...)」から choices を読む
+    static func permissionModes(fromHelp help: String) -> [String] {
+        guard let r = help.range(of: #"--permission-mode[\s\S]{0,400}?\(choices:[^)]*\)"#, options: .regularExpression) else { return [] }
+        let re = try! NSRegularExpression(pattern: #""([A-Za-z]+)""#)
+        let s = String(help[r])
+        return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).compactMap { Range($0.range(at: 1), in: s).map { String(s[$0]) } }
     }
 
     private static func run(_ url: URL, _ args: [String], timeout: Double) -> String? {

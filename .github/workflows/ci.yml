@@ -5,23 +5,32 @@ on:
     branches: [main]
   pull_request:
 
+# リポジトリを読むだけ（書き込みの権限を持たせない）
+permissions:
+  contents: read
+
 jobs:
   build:
     # SpeechAnalyzer など macOS 26 の SDK が必要
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      # タグは付け替えられるので、コミットで固定する（v4.4.0）
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          persist-credentials: false
           fetch-depth: 0 # ビルド番号にコミット数を使う
       - name: Toolchain
         run: swift --version
       - name: Test
         run: scripts/test.sh
+      - name: Translations
+        run: python3 scripts/l10n.py check
       - name: Build (universal)
         run: scripts/build.sh --universal
       - name: Verify bundle
         run: |
           codesign --verify --strict --verbose=2 dist/JellyfishAI.app
+          codesign -d --verbose=2 dist/JellyfishAI.app 2>&1 | grep -q 'flags=.*runtime'
           lipo -archs dist/JellyfishAI.app/Contents/MacOS/JellyfishAI | grep -q x86_64
           lipo -archs dist/JellyfishAI.app/Contents/MacOS/JellyfishAI | grep -q arm64
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" dist/JellyfishAI.app/Contents/Info.plist

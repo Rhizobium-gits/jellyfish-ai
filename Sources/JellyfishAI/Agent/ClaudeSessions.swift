@@ -78,9 +78,12 @@ enum ClaudeSessions {
             }
             if title != nil && cwd != nil { break }
         }
-        let name = title ?? firstPrompt.map { String($0.prefix(40)) } ?? "（無題のセッション）"
+        let name = title ?? firstPrompt.map { String($0.prefix(40)) } ?? L("（無題のセッション）")
         let mod = modified ?? ((try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date())
-        return ClaudeSessionInfo(id: file.deletingPathExtension().lastPathComponent, file: file, cwd: cwd, title: name, modified: mod)
+        // セッション ID は claude の --resume に渡すので、UUID の形のものだけ（「--x.jsonl」のような名前がオプションにならないように）
+        let id = file.deletingPathExtension().lastPathComponent
+        guard UUID(uuidString: id) != nil else { return nil }
+        return ClaudeSessionInfo(id: id, file: file, cwd: cwd, title: name, modified: mod)
     }
 
     /// 読んだところまでの位置と結果（セッションのファイルは追記だけなので、次回は増えた分だけ読む）

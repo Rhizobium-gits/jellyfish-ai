@@ -71,6 +71,12 @@ struct AppSettings: Codable {
     var archivedSessions: [String] = []
     /// ユーザーが設定している MCP サーバー（Figma・Blender など）と claude.ai のコネクタを読み込むか
     var externalMCP: ExternalMCPMode = .auto
+    /// 表示の言語（system = macOS に合わせる）
+    var language: AppLanguage = .system
+    /// 自律組織モード：ユーザーの依頼ごとに、エージェントが仕事に合ったチームを自分で組む（既定オフ。使用量が増えるため）
+    var orgMode: Bool = false
+    /// 自律組織の結果とユーザーの反応から、組織の選び方を学ぶ（端末内だけで計算し、どこにも送らない）
+    var orgLearning: Bool = true
 
     init() {}
 
@@ -97,6 +103,9 @@ struct AppSettings: Codable {
         teamEnabled = c.value(Bool.self, .teamEnabled, d.teamEnabled)
         archivedSessions = c.value([String].self, .archivedSessions, d.archivedSessions)
         externalMCP = c.value(ExternalMCPMode.self, .externalMCP, d.externalMCP)
+        language = c.value(AppLanguage.self, .language, d.language)
+        orgMode = c.value(Bool.self, .orgMode, d.orgMode)
+        orgLearning = c.value(Bool.self, .orgLearning, d.orgLearning)
     }
 }
 
@@ -116,6 +125,8 @@ struct JellyRecord: Codable, Identifiable {
     /// エージェントが create_teammate で作った場合の作成元と、作成の深さ（ユーザーが作ったものは 0）
     var parentID: UUID?
     var depth: Int?
+    /// 自律組織モードで form_team が作った仲間（仕事が変わって要らなくなったら片付ける）
+    var orgSpawned: Bool?
 
     var color: JellyColor { Palette.color(colorIndex) }
     var title: String { name ?? "Agent \(number)" }
@@ -143,13 +154,20 @@ private extension KeyedDecodingContainer {
 enum AppPaths {
     static let dataDir: URL = {
         let dir: URL
+        let fm = FileManager.default
+        // 会話の生イベント（ツールの結果）・画面の画像・文字起こしが入るので、本人だけが開けるフォルダにする
+        let ownerOnly: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
         if let p = ProcessInfo.processInfo.environment["JELLYFISH_DATA_DIR"], !p.isEmpty {
             dir = URL(fileURLWithPath: (p as NSString).expandingTildeInPath, isDirectory: true)
+            // 指定された既存のフォルダの権限は変えない（新しく作るときだけ本人専用に）
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: ownerOnly)
         } else {
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             dir = base.appendingPathComponent("JellyfishAI", isDirectory: true)
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: ownerOnly)
+            // 1.0.2 までに作ったフォルダは 755 なので、本人専用に直す
+            try? fm.setAttributes(ownerOnly, ofItemAtPath: dir.path)
         }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
 

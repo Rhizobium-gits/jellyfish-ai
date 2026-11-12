@@ -11,9 +11,9 @@ enum ExternalMCPMode: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .auto: return "呼んだときだけ（指示に名前があれば読み込む）"
-        case .always: return "いつも読み込む"
-        case .never: return "使わない"
+        case .auto: return L("呼んだときだけ（指示に名前があれば読み込む）")
+        case .always: return L("いつも読み込む")
+        case .never: return L("使わない")
         }
     }
 }
@@ -82,10 +82,16 @@ enum ExternalMCP {
 
     /// 読み込まなかったときにエージェントへ伝える一言
     static func notLoadedNote(_ servers: [String], canLoad: Bool) -> String {
-        let list = servers.isEmpty ? "claude.ai のコネクタ" : servers.joined(separator: ", ") + " と claude.ai のコネクタ"
+        let list = servers.isEmpty ? L("claude.ai のコネクタ") : L("%@ と claude.ai のコネクタ", servers.joined(separator: ", "))
         let how = canLoad
-            ? "それらが必要な作業なら、ユーザーに「\(servers.first ?? "Blender") を使って」のように名前を入れて頼み直してもらうよう伝えてください。"
-            : "ユーザーが Jellyfish の設定で外部ツールを使わないようにしています。必要ならメニューバーの「外部ツール（MCP）」で切り替えられると伝えてください。"
-        return "（Jellyfish より）この実行ではトークンを節約するため、ユーザーが設定している外部の MCP サーバー（\(list)）を読み込んでいません。" + how
+            ? L("それらが必要な作業なら、ユーザーに「%@ を使って」のように名前を入れて頼み直してもらうよう伝えてください。", servers.first ?? "Blender")
+            : L("ユーザーが Jellyfish の設定で外部ツールを使わないようにしています。必要ならメニューバーの「外部ツール（MCP）」で切り替えられると伝えてください。")
+        return L("（Jellyfish より）この実行ではトークンを節約するため、ユーザーが設定している外部の MCP サーバー（%@）を読み込んでいません。%@", list, how)
+    }
+
+    /// 仲間からの依頼のターンで読み込まなかったとき
+    static func notLoadedForRequestNote(_ servers: [String]) -> String {
+        let list = servers.isEmpty ? L("claude.ai のコネクタ") : L("%@ と claude.ai のコネクタ", servers.joined(separator: ", "))
+        return L("（Jellyfish より）この実行は仲間からの依頼なので、外部の MCP サーバー（%@）は読み込んでいません（依頼文に名前があっても読み込みません）。必要なら、ユーザーが依頼元のエージェントにそのツールの名前を入れて頼むよう、依頼元に伝えてください。", list)
     }
 }

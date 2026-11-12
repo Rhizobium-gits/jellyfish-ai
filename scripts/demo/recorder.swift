@@ -130,6 +130,21 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didStopWithError error: Error) { print("stream stopped: \(error)") }
 
+    /// アプリが自動化モードの起動時にデータフォルダへ書く合言葉（automation.token）を URL に付ける。
+    /// 合言葉が無いと、指示の送信など公開以外の操作は受け付けられない。起動直後でまだ無ければ 10 秒まで待つ
+    func withToken(_ s: String) async -> URL? {
+        let file = URL(fileURLWithPath: (tl.dataDir as NSString).expandingTildeInPath).appendingPathComponent("automation.token")
+        var token: String?
+        for _ in 0..<100 {
+            if let t = try? String(contentsOf: file, encoding: .utf8), !t.isEmpty { token = t; break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        guard var c = URLComponents(string: s) else { return nil }
+        if let token { c.queryItems = (c.queryItems ?? []) + [URLQueryItem(name: "token", value: token)] }
+        else { print("automation.token がありません（公開の操作だけ届きます）") }
+        return c.url
+    }
+
     /// jellies.json から各クラゲの状態を読む
     func state(of agent: Int) -> String? {
         let url = URL(fileURLWithPath: (tl.dataDir as NSString).expandingTildeInPath).appendingPathComponent("jellies.json")
@@ -190,7 +205,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
             }
-            if let u = step.url, let url = URL(string: u) {
+            if let u = step.url, let url = await withToken(u) {
                 // 作業中のアプリからフォーカスを奪わないよう、前面化せずに URL を渡す。
                 // アプリケーションフォルダにも Jellyfish AI があるので、録画用に起動した dist/ の方へ明示して渡す
                 await MainActor.run {
