@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 enum SnapshotTool {
     static func handles(_ args: [String]) -> Bool {
         args.contains("--sheet") || args.contains("--strip") || args.contains("--icon") || args.contains("--settle-test") || args.contains("--status-frames")
-            || args.contains("--pixel-sheet") || args.contains("--account-menu") || args.contains("--chat-sample")
+            || args.contains("--pixel-sheet") || args.contains("--account-menu") || args.contains("--chat-sample") || args.contains("--watch-bench")
     }
 
     static func run(_ args: [String]) -> Int32 {
@@ -37,6 +37,17 @@ enum SnapshotTool {
         if let out = value("--status-frames") { return statusFrames(out) }
         if let out = value("--account-menu") { return accountMenu(out) }
         if let out = value("--chat-sample") { return chatSample(out, dark: value("--bg") == "dark") }
+        if let s = value("--watch-bench").flatMap(Double.init) {
+            // 見守りの負担を測る：毎回読む場合と、変わったときだけ読む場合（どちらも Mac の中だけ・モデルは呼ばない）
+            let sem = DispatchSemaphore(value: 0)
+            Task.detached {
+                print(await ScreenWatcher.bench(seconds: s, force: true))
+                print(await ScreenWatcher.bench(seconds: s, force: false))
+                sem.signal()
+            }
+            while sem.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+            return 0
+        }
         if args.contains("--settle-test") { return settleTest() }
         return 1
     }

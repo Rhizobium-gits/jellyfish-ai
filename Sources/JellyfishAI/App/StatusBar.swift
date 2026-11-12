@@ -70,6 +70,42 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         if item.button?.image !== img { item.button?.image = img }
     }
 
+    /// 👀 見守り：見守っているクラゲ・負担の目安（実際に測った CPU）・聞かないアプリ
+    private func watchMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: L("👀 見守り"), action: nil, keyEquivalent: "")
+        let wm = NSMenu()
+        wm.autoenablesItems = false
+        let names = manager.watchingControllers.map(\.record.title)
+        wm.addItem(.header(L("見守っているクラゲ: %@", names.isEmpty ? L("なし") : names.joined(separator: L("、")))))
+        if ScreenWatcher.shared.isRunning {
+            if !CGPreflightScreenCaptureAccess() {
+                wm.addItem(.header(L("⚠️ 画面収録の許可が効いていないので、いまは見ていません（🔐 権限）")))
+            } else if let l = ScreenWatcher.shared.load() {
+                wm.addItem(.header(L("負担の目安（直近 1 分）: CPU 約 %@%%・文字の読み取り %ld 回", String(format: "%.1f", l.cpuPercent), l.ocrCount)))
+            }
+        }
+        wm.addItem(.separator())
+        wm.addItem(.header(L("・クラゲのチャットの 👀 か、右クリック ›「見守る」でクラゲごとにオン（既定はオフ）")))
+        wm.addItem(.header(L("・前面のウィンドウを、この Mac の中だけで読む（トークン 0・どこにも送らない）")))
+        wm.addItem(.header(L("・エラーっぽい表示に気づいたら「見る？」と聞く。押したときだけ、その 1 枚を送る")))
+        wm.addItem(.header(L("・パスワードの管理・ロック画面・Jellyfish 自身は見ない。画面が変わらないときと離席中は読まない")))
+        let ignored = manager.settings.watchIgnoredApps
+        if !ignored.isEmpty {
+            wm.addItem(.separator())
+            wm.addItem(.header(L("聞かないアプリ（選ぶと、また聞く）")))
+            for b in ignored {
+                let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: b).map { FileManager.default.displayName(atPath: $0.path) } ?? b
+                wm.addItem(ClosureMenuItem("  " + name) { [weak self] in self?.manager.unignoreWatchApp(b) })
+            }
+        }
+        if !names.isEmpty {
+            wm.addItem(.separator())
+            wm.addItem(ClosureMenuItem(L("見守りをすべてやめる")) { [weak self] in self?.manager.stopAllWatching() })
+        }
+        item.submenu = wm
+        return item
+    }
+
     /// Claude の下：ログインしているほかの AI の使用量（ChatGPT は Codex の記録にある 5 時間・今週の枠、Gemini は Jellyfish が動かした回数）
     private func otherEngineUsageItems() -> [NSMenuItem] {
         var out: [NSMenuItem] = []
@@ -465,6 +501,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(pcItem)
         // macOS の許可（Full Access の範囲と、いま付いている許可）を見て、まとめて許可・取り消す
         menu.addItem(ClosureMenuItem(L("🔐 権限（Full Access）…")) { [weak self] in self?.manager.showPermissions() })
+        menu.addItem(watchMenuItem())
 
         // エージェント同士の分業
         let teamItem = NSMenuItem(title: L("チーム（分業）"), action: nil, keyEquivalent: "")

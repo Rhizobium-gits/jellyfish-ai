@@ -90,6 +90,8 @@ struct AppSettings: Codable {
     var geminiModel: String = ""
     /// チャットに Web ページのプレビュー（表紙の画像とタイトル）を出すか。出すときは、そのページを Mac の LinkPresentation が読みに行く
     var linkPreviews: Bool = true
+    /// 見守りで「このアプリでは聞かない」にしたアプリ（バンドル ID）
+    var watchIgnoredApps: [String] = []
 
     init() {}
 
@@ -126,6 +128,7 @@ struct AppSettings: Codable {
         codexModel = c.value(String.self, .codexModel, d.codexModel)
         geminiModel = c.value(String.self, .geminiModel, d.geminiModel)
         linkPreviews = c.value(Bool.self, .linkPreviews, d.linkPreviews)
+        watchIgnoredApps = c.value([String].self, .watchIgnoredApps, d.watchIgnoredApps)
     }
 }
 

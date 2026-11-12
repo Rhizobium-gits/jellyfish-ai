@@ -247,6 +247,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "permissions":
             // 「🔐 権限」の画面を出す（表示だけ。許可を求めるのは、本人がその画面で「まとめて許可する」を押したあとの続きだけ）
             manager.showPermissions(done: param("done"))
+        case "watchtest":
+            // テスト用（合言葉つきの自動化のときだけ）：見守りの吹き出しを見本の画像で出す
+            manager.debugWatchFinding()
         case "accounts":
             // 自動化（合言葉つき）のときだけ：アカウントと AI の画面
             manager.showAccounts()

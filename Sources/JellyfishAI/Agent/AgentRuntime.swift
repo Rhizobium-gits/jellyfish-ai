@@ -30,6 +30,8 @@ final class AgentRuntime {
     var effort: String? { didSet { saveMeta() } }
     /// このエージェントに PC 操作（画面・マウス・キー）を許すか。既定はオフ
     var pcControl: Bool = false { didSet { saveMeta() } }
+    /// 見守り（画面のエラーっぽい表示に気づいたら聞く）。既定はオフ
+    var watchScreen: Bool = false { didSet { saveMeta() } }
 
     /// 現在の動作の 1 行説明（「Bash: npm test」など）
     private(set) var activity: String?
@@ -106,6 +108,7 @@ final class AgentRuntime {
         model = meta?.model
         effort = meta?.effort
         pcControl = meta?.pcControl ?? false
+        watchScreen = meta?.watchScreen ?? false
         engine = meta?.engine.flatMap(AgentEngine.init(rawValue:))
         externalMCPSession = meta?.externalMCPSession
         turns = AgentRuntime.loadTurns(dir)
@@ -455,6 +458,7 @@ final class AgentRuntime {
         var sessionID: String; var sessionStarted: Bool; var cwd: String
         var model: String?; var effort: String?
         var pcControl: Bool?
+        var watchScreen: Bool?
         var externalMCPSession: String?
         var engine: String?
         var sessionEngine: String?
@@ -467,7 +471,7 @@ final class AgentRuntime {
 
     private func saveMeta() {
         let m = Meta(sessionID: sessionID, sessionStarted: sessionStarted, cwd: cwd.path, model: model, effort: effort,
-                     pcControl: pcControl, externalMCPSession: externalMCPSession, engine: engine?.rawValue,
+                     pcControl: pcControl, watchScreen: watchScreen, externalMCPSession: externalMCPSession, engine: engine?.rawValue,
                      sessionEngine: sessionEngine?.rawValue)
         if let d = try? JSONEncoder().encode(m) { try? d.write(to: dir.appendingPathComponent("meta.json"), options: .atomic) }
     }

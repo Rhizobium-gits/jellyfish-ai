@@ -155,6 +155,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private let listenButton = NSButton(title: "🎧", target: nil, action: nil)
     /// Mac の音声入力（システム設定 › キーボード › 音声入力）で入力欄に話して入れる
     private let dictationButton = NSButton(title: "🎙", target: nil, action: nil)
+    /// 見守り（画面のエラーっぽい表示に気づいたら聞く。Mac の中だけで読む）
+    private let watchButton = NSButton(title: "👀", target: nil, action: nil)
     private var listenTimer: Timer?
     /// 会話の表示（表・数式・図・コードの色分け。アプリの中の HTML を WKWebView で）
     private let transcriptView = ChatTranscriptView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
@@ -261,6 +263,12 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         dictationButton.font = .systemFont(ofSize: 11.5)
         dictationButton.target = self
         dictationButton.action = #selector(startDictation)
+        watchButton.bezelStyle = .accessoryBarAction
+        watchButton.controlSize = .small
+        watchButton.font = .systemFont(ofSize: 11.5)
+        watchButton.setButtonType(.pushOnPushOff)
+        watchButton.target = self
+        watchButton.action = #selector(toggleWatch)
         dictationButton.toolTip = L("話して入力する（Mac の音声入力。システム設定 › キーボード › 音声入力 のショートカットでも始められます。使えないときは、そこで音声入力をオンに）")
         listenButton.setButtonType(.pushOnPushOff)
         listenButton.toolTip = L("システムの音（会議・動画など）を聞き取って文字にする。止めると文字起こしを添付するので「議事録にして」「翻訳して」と頼める")
@@ -324,7 +332,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         effortPopup.action = #selector(effortChanged)
         modelPopup.toolTip = L("このクラゲが使うモデル。自動は依頼ごとに Haiku・Sonnet・Opus・Fable から選ぶ。既定はメニューバーの「🧠 モデル（既定）」に従う（次の指示から反映）")
         effortPopup.toolTip = L("考える強さ（--effort。次の指示から反映）")
-        let controlsRow = NSStackView(views: [screenPopup, attachButton, dictationButton, pcButton, listenButton, folderButton, NSView(), terminalButton])
+        let controlsRow = NSStackView(views: [screenPopup, attachButton, dictationButton, pcButton, listenButton, watchButton, folderButton, NSView(), terminalButton])
         controlsRow.orientation = .horizontal
         controlsRow.spacing = 6
         // 幅が足りないときはウィンドウを広げず、フォルダ名・ポップアップの文字を省略して縮める
@@ -564,6 +572,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             listenTimer = nil
         }
         pcButton.state = runtime.pcControl ? .on : .off
+        watchButton.state = runtime.watchScreen ? .on : .off
+        watchButton.title = runtime.watchScreen ? L("👀 見守り中") : "👀"
+        watchButton.toolTip = L("見守り：前面のウィンドウを Mac の中だけで読み（トークン 0・どこにも送らない）、エラーっぽい表示に気づいたら「見る？」と聞きます。押したときだけ、その 1 枚を送ります")
         pcButton.title = runtime.pcControl ? L("🖱 PC 操作: オン") : L("🖱 PC 操作")
         stateLabel.stringValue = st
         cancelButton.isHidden = !running
@@ -973,6 +984,25 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         refresh()
     }
     @objc private func retryTask() { runtime.retry() }
+
+    @objc private func toggleWatch() {
+        if let j = jelly { manager?.setWatching(j, !runtime.watchScreen) }
+        refresh()
+    }
+
+    /// 見守りで「見る」を押されたとき：その 1 枚を添えて聞く（作業中なら、終わってから送れるように入力欄に）
+    func sendWatchFinding(image: URL, appName: String, windowTitle: String?) {
+        let what = windowTitle.flatMap { $0.isEmpty ? nil : L("%@「%@」", appName, $0) } ?? appName
+        let text = L("（見守り）%@ にエラーっぽい表示が出ました。添付の画像を見て、何が起きているかと、直し方を短く教えてください。", what)
+        if runtime.isRunning {
+            addAttachments([image])
+            input.string = text
+            relayoutInput()
+            setInputHint(L("いまは作業中です。終わったら Enter で送れます"))
+            return
+        }
+        send(text + AgentChatController.attachMarker + "\n- " + image.path + "\n" + L("画像やファイルは Read ツールで開いて内容を確認してください。"))
+    }
 
     /// Mac の音声入力を、この入力欄で始める（AI ではなく macOS の機能。話した言葉がそのまま入力欄に入る）
     @objc private func startDictation() {

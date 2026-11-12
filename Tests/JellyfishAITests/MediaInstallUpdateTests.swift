@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 @testable import JellyfishAI
 
@@ -768,5 +769,101 @@ import JavaScriptCore
         #expect(html.contains("connect-src 'none'"))
         #expect(html.contains("img-src data:"))
         #expect(!html.contains("http://") && !html.contains("https://"))
+    }
+}
+
+// 見守り：エラーっぽい行の見つけ方・画面が変わったかの見方・吹き出しの位置・クラゲごとの設定
+@Suite struct ScreenWatcherTests {
+    @Test func findsErrorLinesInThreeLanguages() {
+        for l in ["error: cannot find 'foo' in scope", "Build Failed", "Traceback (most recent call last):", "zsh: permission denied: ./run.sh",
+                  "ファイルを保存できませんでした", "エラーが発生しました", "接続に失敗しました", "ページが見つかりません",
+                  "发生错误", "连接失败", "无法打开文件"] {
+            #expect(WatchMatcher.isErrorLine(l), "\(l)")
+        }
+    }
+
+    @Test func ignoresNamesAndOrdinaryText() {
+        for l in ["let e: NSError? = nil", "func errorHandler() {", "on_error = None", "今日は良い天気です", "All tests passed",
+                  "ok", String(repeating: "error ", count: 60)] {
+            #expect(!WatchMatcher.isErrorLine(l), "\(l)")
+        }
+        #expect(WatchMatcher.errorLines(["fine", "Error: x", "Error: x", "失敗しました"]) == ["Error: x", "失敗しました"])
+    }
+
+    @Test func sameErrorWithOtherNumbersIsTheSame() {
+        let a = WatchMatcher.signature(app: "com.apple.Terminal", title: "zsh", lines: ["error at line 12 (pid 4411)"])
+        let b = WatchMatcher.signature(app: "com.apple.Terminal", title: "zsh", lines: ["error at line 98 (pid 5023)"])
+        let c = WatchMatcher.signature(app: "com.apple.Terminal", title: "zsh", lines: ["fatal: not a git repository"])
+        #expect(a == b && a != c)
+    }
+
+    @Test func passwordAppsAreNeverWatched() {
+        for b in ["com.apple.keychainaccess", "com.1password.1password", "com.apple.Passwords", "com.apple.loginwindow", "ai.jellyfish.desktop"] {
+            #expect(WatchMatcher.excludedBundleIDs.contains(b))
+        }
+    }
+
+    @Test func smallFlickersDoNotCountAsChanges() {
+        let a = [UInt8](repeating: 100, count: 24 * 16)
+        var cursor = a; cursor[17] = 200                       // カーソルの点滅くらい
+        var output = a; for i in 300..<340 { output[i] = 30 }  // 新しい行が出た
+        #expect(ScreenWatcher.changedFraction(a, a) == 0)
+        #expect(ScreenWatcher.changedFraction(a, cursor) <= 0.004)
+        #expect(ScreenWatcher.changedFraction(a, output) > 0.004)
+        #expect(ScreenWatcher.changedFraction(a, []) == 1)
+    }
+
+    @Test func gridReadsBrightness() throws {
+        let ctx = CGContext(data: nil, width: 96, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+        ctx.setFillColor(gray: 1, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: 96, height: 64))
+        ctx.setFillColor(gray: 0, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: 48, height: 64))
+        let g = ScreenWatcher.grid(try #require(ctx.makeImage()))
+        #expect(g.count == 24 * 16)
+        #expect(g[0] < 40 && g[23] > 215)
+    }
+
+    @Test func bubbleStaysOnScreen() {
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let size = NSSize(width: 300, height: 110)
+        let mid = WatchBubble.origin(for: size, near: NSRect(x: 700, y: 300, width: 90, height: 87), screens: [screen])
+        #expect(mid.y >= 387)                                  // クラゲの上
+        let top = WatchBubble.origin(for: size, near: NSRect(x: 1340, y: 800, width: 90, height: 87), screens: [screen])
+        #expect(top.x >= 6 && top.x + size.width <= screen.maxX - 6 && top.y + size.height <= screen.maxY - 6)
+    }
+
+    @Test func watchingIsPerJellyfishAndRemembered() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("jf-watch-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let id = UUID()
+        let rt = AgentRuntime(agentID: id, baseDir: base, backendProvider: { _ in nil })
+        #expect(rt.watchScreen == false)                        // 既定はオフ
+        rt.watchScreen = true
+        #expect(AgentRuntime(agentID: id, baseDir: base, backendProvider: { _ in nil }).watchScreen == true)
+        #expect(AgentRuntime(agentID: UUID(), baseDir: base, backendProvider: { _ in nil }).watchScreen == false)
+    }
+}
+
+@Suite struct ScreenWatcherOCRTests {
+    /// 文字を描いた画像を macOS の文字認識で読み、エラーっぽい行が見つかるか（この Mac の中だけで動く）
+    @Test func recognizesErrorTextInAnImage() throws {
+        let w = 1000, h = 300
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                                                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSColor.white.setFill(); NSRect(x: 0, y: 0, width: w, height: h).fill()
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 28), .foregroundColor: NSColor.black]
+        ("$ swift build" as NSString).draw(at: NSPoint(x: 20, y: 220), withAttributes: attrs)
+        ("error: cannot find 'foo' in scope" as NSString).draw(at: NSPoint(x: 20, y: 150), withAttributes: attrs)
+        ("ファイルを保存できませんでした" as NSString).draw(at: NSPoint(x: 20, y: 80), withAttributes: attrs)
+        ("All good otherwise" as NSString).draw(at: NSPoint(x: 20, y: 15), withAttributes: attrs)
+        NSGraphicsContext.restoreGraphicsState()
+        let img = try #require(rep.cgImage)
+        let lines = ScreenWatcher.recognize(img)
+        let found = WatchMatcher.errorLines(lines)
+        #expect(found.contains { $0.lowercased().contains("error") }, "\(lines)")
+        #expect(found.contains { $0.contains("できませんでした") }, "\(lines)")
+        #expect(!found.contains { $0.contains("All good") })
     }
 }

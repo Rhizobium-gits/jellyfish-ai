@@ -71,6 +71,112 @@ final class JellyManager {
         }
         // 使う AI のログイン状態を先に確かめておく（最初の指示で待たないように）
         refreshEngineStatus()
+        // 見守り（クラゲごとに既定オフ。オンのクラゲがいるときだけ動く）
+        ScreenWatcher.shared.isActive = { [weak self] in self?.runtimes.values.contains { $0.watchScreen } ?? false }
+        ScreenWatcher.shared.ignoredApps = { [weak self] in Set(self?.settings.watchIgnoredApps ?? []) }
+        ScreenWatcher.shared.onFinding = { [weak self] f in self?.handleWatchFinding(f) }
+        DispatchQueue.main.async { ScreenWatcher.shared.refresh() }
+    }
+
+    // MARK: - 見守り（画面のエラーっぽい表示に気づいたら聞く）
+
+    private var watchBubble: WatchBubble?
+    private var watchImages: [URL: Timer] = [:]
+
+    /// 見守っているクラゲ（隠しているものは除く）
+    var watchingControllers: [JellyController] {
+        controllers.filter { runtimes[$0.record.id]?.watchScreen == true && !$0.record.hidden }.sorted { $0.record.number < $1.record.number }
+    }
+
+    func setWatching(_ c: JellyController, _ on: Bool) {
+        guard let rt = runtimes[c.record.id] else { return }
+        rt.watchScreen = on
+        ScreenWatcher.shared.refresh()
+        chats[c.record.id]?.refresh()
+        AppLog.write("watch \(on ? "on" : "off"): agent \(c.record.number)")
+        guard on, !CGPreflightScreenCaptureAccess() else { return }
+        // 画面収録の許可が無いと見られない（確認は起動中 1 回だけ）
+        _ = DesktopControl.requestScreenRecordingOnce()
+        if CGPreflightScreenCaptureAccess() { return }
+        let a = NSAlert()
+        a.messageText = L("見守りには画面収録の許可が必要です")
+        a.informativeText = L("前面のウィンドウを Mac の中で読むために使います（どこにも送りません）。") + "\n\n" + DesktopControl.screenRecordingHint
+        a.addButton(withTitle: L("🔐 権限の画面を開く"))
+        a.addButton(withTitle: L("あとで"))
+        NSApp.activate(ignoringOtherApps: true)
+        if a.runModal() == .alertFirstButtonReturn { showPermissions() }
+    }
+
+    func stopAllWatching() {
+        for rt in runtimes.values where rt.watchScreen { rt.watchScreen = false }
+        ScreenWatcher.shared.refresh()
+        watchBubble?.close()
+        watchBubble = nil
+        for (_, chat) in chats { chat.refresh() }
+    }
+
+    func unignoreWatchApp(_ bundleID: String) {
+        updateSettings { $0.watchIgnoredApps.removeAll { $0 == bundleID } }
+    }
+
+    private func handleWatchFinding(_ f: WatchFinding, target: JellyController? = nil) {
+        guard watchBubble == nil, let c = target ?? watchingControllers.first, let rt = runtimes[c.record.id] else { return }
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let url = rt.dir.appendingPathComponent("attachments", isDirectory: true).appendingPathComponent("watch-\(stamp).png")
+        guard ScreenWatcher.savePNG(f.image, to: url) else { return }
+        // 押されなければ 10 分で消す
+        watchImages[url] = Timer.scheduledTimer(withTimeInterval: 600, repeats: false) { [weak self] _ in self?.discardWatchImage(url) }
+        let b = WatchBubble(
+            appName: f.appName, snippet: f.snippet, accent: c.record.color.nsColor, near: c.panel.frame,
+            onShow: { [weak self, weak c] in
+                guard let self else { return }
+                self.watchBubble = nil
+                guard let c else { self.discardWatchImage(url); return }
+                self.watchImages[url]?.invalidate()
+                self.watchImages[url] = nil     // 送ったものは添付として残す（画面の画像と同じく 7 日で片付く）
+                self.openChat(for: c)
+                self.chats[c.record.id]?.sendWatchFinding(image: url, appName: f.appName, windowTitle: f.windowTitle)
+                AppLog.write("watch: sent to agent \(c.record.number)")
+            },
+            onDismiss: { [weak self] in
+                self?.watchBubble = nil
+                self?.discardWatchImage(url)
+                if let b = f.bundleID { ScreenWatcher.shared.quiet(b, for: 1800) }
+            },
+            onIgnoreApp: { [weak self] in
+                guard let self else { return }
+                self.watchBubble = nil
+                self.discardWatchImage(url)
+                if let b = f.bundleID, !b.isEmpty { self.updateSettings { if !$0.watchIgnoredApps.contains(b) { $0.watchIgnoredApps.append(b) } } }
+            })
+        watchBubble = b
+        b.present()
+        // 同じアプリではしばらく聞かない（✕ ならもっと長く）
+        if let b = f.bundleID { ScreenWatcher.shared.quiet(b, for: 600) }
+        // 認識した文字はログに書かない
+        AppLog.write("watch: finding in \(f.bundleID ?? "?") → agent \(c.record.number)")
+    }
+
+    /// テスト用：見本の画像で吹き出しを出す（jellyfish://watchtest。自動化のときだけ）
+    func debugWatchFinding() {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 800, pixelsHigh: 200, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSColor.black.setFill(); NSRect(x: 0, y: 0, width: 800, height: 200).fill()
+        ("error: cannot find 'foo' in scope" as NSString).draw(at: NSPoint(x: 20, y: 90),
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 24, weight: .regular), .foregroundColor: NSColor.systemRed])
+        NSGraphicsContext.restoreGraphicsState()
+        guard let img = rep.cgImage else { return }
+        handleWatchFinding(WatchFinding(appName: "Terminal", bundleID: "com.apple.Terminal", windowTitle: "zsh",
+                                        snippet: "error: cannot find 'foo' in scope", image: img, signature: UUID().uuidString),
+                           target: watchingControllers.first ?? controllers.first)
+    }
+
+    private func discardWatchImage(_ url: URL) {
+        watchImages[url]?.invalidate()
+        watchImages[url] = nil
+        try? FileManager.default.removeItem(at: url)
     }
 
     static let languageChanged = Notification.Name("JellyfishLanguageChanged")
@@ -1096,8 +1202,9 @@ final class JellyManager {
         for rt in runtimes.values where rt.pcControl { rt.pcControl = false }
         for rt in detached where rt.pcControl { rt.pcControl = false }
         if let cur = listener, let c = controllers.first(where: { $0.record.id == cur.agent }) { toggleListening(c) }
+        stopAllWatching()
         for (_, chat) in chats { chat.refresh() }
-        AppLog.write("privileges disabled (pc control off, listening stopped)")
+        AppLog.write("privileges disabled (pc control off, listening stopped, watching stopped)")
     }
 
     /// 作業中のクラゲがいるか（アップデートで入れ替える前に確かめる）
@@ -1143,6 +1250,10 @@ final class JellyManager {
         }
         items.append(ClosureMenuItem(L("チャットを開く…")) { [weak self, weak c] in if let c { self?.openChat(for: c) } })
         items.append(ClosureMenuItem(L("名前を変える…")) { [weak self, weak c] in if let c { self?.promptRename(c) } })
+        let watching = runtimes[r.id]?.watchScreen == true
+        items.append(ClosureMenuItem(L("👀 見守る（エラーに気づいたら聞く）"), checked: watching) { [weak self, weak c] in
+            if let c { self?.setWatching(c, !watching) }
+        })
         if let team, settings.teamEnabled {
             // ドラッグしなくても、離れたクラゲとつなげる
             let others = controllers.filter { $0 !== c && !$0.record.hidden && !team.isLinked(r.id, $0.record.id) }

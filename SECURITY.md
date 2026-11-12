@@ -92,6 +92,13 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
 - `scripts/update.sh`（アプリの中の `Contents/Resources/update.sh` も同じもの）は、上と同じことを確かめてから入れ替えます。入れ替えるのは指定した場所（既定は /Applications/JellyfishAI.app）の Jellyfish AI だけで、終えるのもその場所から動いているものだけです。sudo は使いません。アプリの「ターミナルでアップデート」は、実行するコマンドを確認の画面に出してから、そのとおりにターミナルで動かします（`source-checkout` に書いた場所が git の checkout で `scripts/update.sh` があるときだけ、その場所で `--source` を使う）
 - アドホック署名の版どうしでは、チェックサムは「壊れていない・GitHub のリリースのとおり」を確かめるもので、作った人を確かめるものではありません（GitHub の https を信じることになります）。気になる場合は、ソースから自分でビルドしてください
 
+### 見守り（既定オフ）
+
+- クラゲごとにオンにしたときだけ、前面のウィンドウを 4 秒ごとに ScreenCaptureKit で撮り、変わったあと落ち着いたときだけ macOS 内蔵の文字認識（Vision）で読みます。**すべてこの Mac の中だけ** で、どこにも送らず、モデルも呼びません。読んだ文字は覚えず、ログにも書きません（ログに書くのは、気づいたアプリのバンドル ID と、どのクラゲに聞いたかだけ）
+- エラーっぽいと分かったときだけ、そのウィンドウの 1 枚をクラゲのデータフォルダ（`agents/<ID>/attachments/watch-*.png`、600）に置き、吹き出しで聞きます。**「見る」を押したときだけ** その 1 枚を AI に送ります。✕・放っておいたとき（90 秒）・10 分たっても押されなかったときは消します
+- 見ないもの：パスワードの管理（1Password・Bitwarden・LastPass・Dashlane・KeePassXC・パスワード・キーチェーンアクセス）、ロック画面・スクリーンセーバー、Jellyfish 自身、ユーザーが「このアプリでは聞かない」にしたアプリ。画面の共有から外されているウィンドウ（`sharingType = .none`）は ScreenCaptureKit に写りません
+- 画面収録の許可が無ければ何もしません（確認の画面も、起動中 1 回だけ）。「🔐 権限」の「まとめて取り消す」で、見守りもすべて止まります
+
 ### チャットの表示
 
 - 会話は、アプリの中の HTML（`Contents/Resources/chat`）を WKWebView で開いて表示します（表・数式・図のため）。使うライブラリ（marked・KaTeX・Mermaid・DOMPurify・highlight.js）はアプリの中に入っていて、npm の公開パッケージからレジストリの sha512 を確かめて取り込み、公開から 2 週間以上たった版を使っています（`Resources/chat/vendor/VERSIONS.txt`）

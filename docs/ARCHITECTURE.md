@@ -108,6 +108,13 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 - **会話を作った AI**：`AgentRuntime.sessionEngine`（meta.json）。既定の AI が変わってクラゲの AI が変わったら、submit で新しい会話にしてモデル・強さの指定を外す。`AgentTurn.engine` でターンごとの AI を覚え、チャットの見出しに使う（Claude Code のセッション記録から読んだ返答は Claude）
 - **仲間の強さ**：`TeamCoordinator.requestedEffort` / `effortList`（Claude は AgentChatController.efforts、ChatGPT はモデルの supported_reasoning_levels、Gemini は無し）
 
+## 2.6.4 見守り（Agent/ScreenWatcher.swift・UI/WatchBubble.swift）
+
+- `AgentRuntime.watchScreen`（meta.json、既定オフ）。`ScreenWatcher.shared` は見守るクラゲがいるときだけ 4 秒の Timer。前面のアプリ（除外の一覧・`watchIgnoredApps`・自分は飛ばす）のいちばん前のウィンドウを CGWindowList で選び、ScreenCaptureKit で長辺 320px を撮って 24×16 の明るさの格子に → 前と比べてはっきり変わったマスが 0.4% を超えたら「読む待ち」、落ち着いた（変わらなかった）ティックで、待ちがあり前回から 8 秒以上なら長辺 1200px で撮って Vision（accurate・ja/en/zh）で読む
+- `WatchMatcher`：英語は単語として（`NSError`・`errorHandler` は数えない）、日中は語で。署名は数字を # にして同じ表示を 30 分まとめる。知らせたら 60 秒は次を出さず、アプリごとに 10 分（✕ で 30 分）静か
+- 見つけたら `JellyManager.handleWatchFinding` がクラゲのデータフォルダに PNG を置き、`WatchBubble`（キーにならないパネル）を出す。「見る」→ `AgentChatController.sendWatchFinding`（作業中なら入力欄に）。消すときは PNG も消す
+- 負担：ティックごとに `getrusage` の差を記録し、メニューに直近 1 分の CPU。`--watch-bench 秒`（毎回読む場合と、落ち着いたときだけ読む場合）。SCWindow は 10 秒使い回す
+
 ## 2.6.3 チャットの会話の表示（UI/ChatTranscriptView.swift・Resources/chat）
 
 - 会話は WKWebView（`Resources/chat/index.html`、`loadFileURL` でそのフォルダだけ読める）。`AgentChatController.reloadTranscript` がメッセージを `[{id, kind, caption, text, notes, media}]` にして `JF.update(payload)`。id は中身のハッシュなので、変わったものだけページが作り直す。サムネイルは `images`（key → data: の PNG）で 1 回だけ送る

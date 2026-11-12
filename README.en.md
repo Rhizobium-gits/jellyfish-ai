@@ -49,6 +49,7 @@
 | **Autonomous organization mode** | For each request, the agent decides on the team's shape and assembles it on its own, then learns from the results and 👍👎 to evolve how it chooses an organization |
 | **Chat** | Like the ChatGPT, Claude and Gemini apps, **tables, math, diagrams and charts, and highlighted code** are shown as they are. Images and PDFs appear as thumbnails, web pages with their cover and title. 🎙 Mac Dictation, 🎧 system audio transcription, screen and file attachments, ↑↓ for previous instructions |
 | **PC control** | Only jellyfish you allow can look at the screen, click and type (Claude). The edges of the screen glow while it's in control, and Esc stops it |
+| **👀 Watching** | A jellyfish reads the front window **on this Mac only** (0 tokens, nothing sent) and asks “take a look?” when something looks like an error. Only that one image is sent, and only if you press it (per jellyfish, off by default) |
 | **🔐 Permissions** | Lists the macOS permissions (Accessibility, Screen Recording, Full Disk Access, Automation) and what each one enables, and grants or revokes them all at once |
 | **See your usage** | Bars in the menu bar for Claude's weekly limit and ChatGPT's 5-hour and weekly limits. Plus calls and tokens per AI, per model and per account |
 | **No surprise charges** | Doesn't handle API keys, and doesn't use AIs signed in on pay-as-you-go (Claude included) |
@@ -303,6 +304,18 @@ Only agents with **🖱 PC Control** turned on in the chat can control this Mac 
 - It needs the **Accessibility** and **Screen Recording** permissions. “Grant All” in the menu bar jellyfish › **🔐 Permissions (Full Access)** sets them up together. `open_app` can only open http / https URLs
 - macOS permissions apply to the whole app, so even for agents with the switch off, commands the agents run (such as `screencapture`) can act within those permissions. When you no longer use them, remove them with “Revoke All”
 - For Blender, if you've added the Blender MCP to Claude Code, agents can use it when your instruction says “Blender” ([External tools (MCP) only when named](#external-tools-mcp-only-when-named))
+
+## Watching (ask when an error shows up)
+
+Turn it on per jellyfish with **👀** in its chat (or right-click › “Watch”; off by default), and that jellyfish watches the front window.
+
+- It looks **only on this Mac**: the app name, the window title, and text read with macOS's built-in text recognition (Vision). **Watching uses 0 tokens** and sends nothing anywhere. The text it reads isn't kept or logged
+- When it notices something like “error:”, “failed”, “Traceback”, “エラー”, “失敗しました” or “错误”, the jellyfish asks in a bubble: **“Looks like an error popped up. Take a look?”** (it doesn't take keyboard focus)
+- **Only when you press “Take a Look”** is that one window image sent to the jellyfish along with the question (works on every AI). Pressing ✕, or leaving it for 90 seconds, deletes the image without sending it
+- It doesn't ask twice about the same thing. After asking, it stays quiet for that app for 10 minutes (30 after ✕), and “Don't ask for this app” turns it off for that app (undo it under **👀 Watching** in the menu bar)
+- It never looks at password managers (1Password, Bitwarden, Passwords, Keychain Access, etc.), the lock screen or Jellyfish itself, and doesn't watch while you're away (5 minutes without input)
+- **Load**: every 4 seconds it takes a small capture just to see whether anything changed, and **reads text only after a change has settled** (at most every 8 seconds; it doesn't read while output keeps streaming or while the screen keeps changing, as with video). Measured here (Apple silicon, with a frequently changing front window): about 2% of one core (about 30% if it read every time). **👀 Watching** in the menu bar shows the CPU actually measured over the last minute. You can also measure it with `JellyfishAI --watch-bench 60`
+- It needs the Screen Recording permission ([Grant or revoke macOS permissions all at once](#grant-or-revoke-macos-permissions-all-at-once))
 
 ## Grant or revoke macOS permissions all at once
 
