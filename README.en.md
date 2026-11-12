@@ -254,6 +254,24 @@ From menu bar jellyfish › **🌐 言語 · Language · 语言**, you can choos
 - If there's a new version, download the .dmg and replace the app by dragging it to the Applications folder, the same as in [Install](#download-and-install) (settings, jellyfish, and conversations are kept)
 - If you use PC control or screen attachment after replacing it, grant the Screen Recording and Accessibility permissions again ([Good to know](#good-to-know))
 
+### Stop being asked for permissions after every update
+
+To stop macOS from asking for permissions after every update, run these commands once in Terminal (in the folder where you put the source; if you haven't yet, do the `git clone` in [Build from source](#build-from-source) first).
+
+```bash
+cd ~/jellyfish-ai
+scripts/signing.sh create
+scripts/install.sh
+```
+
+> [!IMPORTANT]
+> In the signing confirmation dialog, choose **Allow**. If you choose **Always Allow**, other programs can also use this certificate without asking.
+
+- `scripts/signing.sh create` creates a Jellyfish-only signing certificate (self-signed) in your login keychain, and `scripts/install.sh` signs the app with it and installs it. macOS treats "Jellyfish AI signed with the same certificate" as the same app, so folder (Desktop, Documents, …), Screen Recording and Accessibility permissions carry over to later updates
+- You'll be asked for the permissions once more, only the first time after switching to the certificate
+- Install later updates with `git pull` followed by `scripts/install.sh` too (the .dmg builds are ad-hoc signed, so replacing the app with one asks for the permissions again)
+- Check it with `scripts/signing.sh status`; stop using it with `scripts/signing.sh delete`
+
 ## Build from source
 
 No Xcode needed; you can build with just the Swift in Command Line Tools (5.10 or later, tested with 6.3).

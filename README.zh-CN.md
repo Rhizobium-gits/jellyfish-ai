@@ -254,6 +254,24 @@ flowchart LR
 - 如果有新版本，下载 .dmg，按照与 [安装](#下载与安装) 相同的方式拖到应用程序文件夹中替换（设置、水母和对话都会保留）
 - 替换后如果要使用电脑操控或屏幕附加，请重新授予屏幕录制和辅助功能权限（[注意事项](#注意事项)）
 
+### 让每次更新后不再请求权限
+
+如果不想每次更新后都被请求权限，请在终端中运行一次下面的命令（在存放源码的文件夹中。如果还没有，请先按照 [从源码构建](#从源码构建) 执行 `git clone`）。
+
+```bash
+cd ~/jellyfish-ai
+scripts/signing.sh create
+scripts/install.sh
+```
+
+> [!IMPORTANT]
+> 在签名确认对话框中，请选择 **“允许（Allow）”**。如果选择 **“始终允许（Always Allow）”**，其他程序也能在不经确认的情况下使用这个证书。
+
+- `scripts/signing.sh create` 会在登录钥匙串中创建 Jellyfish 专用的签名证书（自签名），`scripts/install.sh` 会用它签名并安装。macOS 会把“用同一个证书签名的 Jellyfish AI”视为同一个应用，因此文件夹（桌面、文稿等）、屏幕录制和辅助功能的权限在之后的更新中也会保留
+- 只有在第一次切换到证书时，才会再请求一次权限
+- 之后的更新也请在 `git pull` 后用 `scripts/install.sh` 安装（.dmg 版本是 ad-hoc 签名，替换后会再次请求权限）
+- 用 `scripts/signing.sh status` 查看，用 `scripts/signing.sh delete` 停止使用
+
 ## 从源码构建
 
 不需要 Xcode，只用 Command Line Tools 中的 Swift（5.10 或更高版本，已在 6.3 上验证）即可构建。
