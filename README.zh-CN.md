@@ -308,7 +308,24 @@ flowchart LR
 - 在菜单栏的水母 › **检查更新…** 中，向 GitHub 确认是否有新版本（仅在选择时。不会自动联网）
 - 如果有新版本，点按 **“更新”** 后，会从 GitHub 的发布下载新版本（.zip），确认 `SHA256SUMS.txt` 的校验和、内容（是否为该版本的 Jellyfish AI）和代码签名后替换应用并重新打开（设置、水母和对话都会保留）。不点按就什么都不做
   - 有水母正在工作时不会替换。如果应用是从无法修改的位置（如 .dmg 内）打开的，或者 macOS 阻止了替换（系统设置 › 隐私与安全性 › App 管理），会引导你前往下载页面
+- 在同一对话框中点按 **“在终端中更新”**，会在终端中运行对话框里显示的命令进行更新。如果你是从源代码用 `scripts/install.sh` 安装的，则会拉取、重新构建并替换（保持你自己的签名）
 - 如果要手动替换，下载 .dmg，按照与 [安装](#下载与安装) 相同的方式拖到应用程序文件夹中
+
+### 一条命令更新
+
+可以在终端中确认是否有新版本并直接更新。脚本内置在应用中，没有源代码也能使用。
+
+```bash
+# 只确认是否有新版本（退出码 0 = 已是最新，10 = 有新版本）
+/Applications/JellyfishAI.app/Contents/Resources/update.sh --check
+
+# 如果有新版本，下载并确认后替换应用并重新打开（替换前会询问；加 --yes 不询问）
+/Applications/JellyfishAI.app/Contents/Resources/update.sh
+```
+
+- 确认的内容与应用中的“更新”相同：只获取本仓库该发布中的 `JellyfishAI-<版本>.zip` 和 `SHA256SUMS.txt`，确认校验和、内容（是否为该版本的 Jellyfish AI）和代码签名（如果当前版本使用证书签名，则需为同一证书）。有水母正在工作时不会替换，不使用 sudo
+- 在源代码文件夹中使用 `scripts/update.sh`。**如果是从源代码安装的，请使用 `scripts/update.sh --source`**（确认没有未提交的更改后，执行 `git pull --ff-only` → `scripts/install.sh`；如果有签名证书会用它签名，权限得以保留）
+- `--app <路径>` 指定要替换的 .app，`--no-open` 表示替换后不打开
 - 替换后如果要使用电脑操控或屏幕附加，请重新授予屏幕录制和辅助功能权限（[注意事项](#注意事项)）
 
 ### 让每次更新后不再请求权限
@@ -326,7 +343,7 @@ scripts/install.sh
 
 - `scripts/signing.sh create` 会在登录钥匙串中创建 Jellyfish 专用的签名证书（自签名），`scripts/install.sh` 会用它签名并安装。macOS 会把“用同一个证书签名的 Jellyfish AI”视为同一个应用，因此文件夹（桌面、文稿等）、屏幕录制和辅助功能的权限在之后的更新中也会保留
 - 只有在第一次切换到证书时，才会再请求一次权限
-- 之后的更新也请在 `git pull` 后用 `scripts/install.sh` 安装（.dmg 版本是 ad-hoc 签名，替换后会再次请求权限）
+- 之后的更新请用 `scripts/update.sh --source`（`git pull` → `scripts/install.sh`）安装（.dmg 和 .zip 版本是 ad-hoc 签名，替换后会再次请求权限）
 - 用 `scripts/signing.sh status` 查看，用 `scripts/signing.sh delete` 停止使用
 
 ## 从源码构建

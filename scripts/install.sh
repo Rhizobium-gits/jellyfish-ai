@@ -64,6 +64,12 @@ fi
 
 rm -rf "$DEST"
 mv "$SRC" "$DEST"
+# ソースから入れたことを覚える（アプリの「ターミナルでアップデート」が、ここで git pull → install.sh を勧める）
+DATA_DIR="$HOME/Library/Application Support/JellyfishAI"
+if [[ -d "$DATA_DIR" ]]; then
+  printf '%s\n' "$ROOT" > "$DATA_DIR/source-checkout"
+  chmod 600 "$DATA_DIR/source-checkout"
+fi
 open -g "$DEST"
 
 echo "Installed: $DEST  (v$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DEST/Contents/Info.plist"))"

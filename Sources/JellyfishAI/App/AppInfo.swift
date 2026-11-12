@@ -120,14 +120,28 @@ enum UpdateChecker {
                     if AppUpdater.isAdhoc(Bundle.main.bundleURL) {
                         text += "\n\n" + L("いまの版は仮の署名（ad-hoc）なので、入れ替えたあと macOS に画面収録・アクセシビリティ・フォルダの許可をもう一度求められることがあります（システム設定で許可し直してください）。")
                     }
+                    // ターミナルで上げるコマンド（ソースから入れていれば git pull → install.sh）
+                    let command = AppUpdater.terminalCommand()
+                    if let command {
+                        text += "\n\n" + (command.contains("--source")
+                            ? L("ソースから入れているので、ターミナルで上げると、取り込んでビルドし直します（自分の署名のまま）:")
+                            : L("ターミナルで上げることもできます:")) + "\n" + command
+                    }
                     a.informativeText = text
                     a.accessoryView = notesView(release.notes)
                     a.addButton(withTitle: L("アップデートする"))
+                    if command != nil { a.addButton(withTitle: L("ターミナルでアップデート")) }
                     a.addButton(withTitle: L("ダウンロードページを開く"))
                     a.addButton(withTitle: L("あとで"))
-                    switch a.runModal() {
-                    case .alertFirstButtonReturn: UpdateSession.start(release, manager: manager)
-                    case .alertSecondButtonReturn: NSWorkspace.shared.open(AppInfo.releasesURL)
+                    let r = a.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+                    switch (r, command) {
+                    case (0, _): UpdateSession.start(release, manager: manager)
+                    case (1, let c?):
+                        if manager?.anyAgentBusy == true {
+                            fallback(L("作業中のクラゲがいます。終わってからもう一度アップデートしてください。"), offerPage: false)
+                        } else if !AppUpdater.runInTerminal(c) { NSSound.beep() }
+                        else { AppLog.write("update in terminal: \(c.contains("--source") ? "source" : "release")") }
+                    case (1, nil), (2, _?): NSWorkspace.shared.open(AppInfo.releasesURL)
                     default: break
                     }
                 } else {

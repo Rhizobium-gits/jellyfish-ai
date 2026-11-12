@@ -308,7 +308,24 @@ A team lead (on any AI) can choose the AI for each teammate and split the work b
 - Menu bar jellyfish › **Check for updates…** checks GitHub for a newer version (only when you choose it; it never connects automatically)
 - If there's a new version, **Update** downloads it (.zip) from the GitHub release, checks the checksum in `SHA256SUMS.txt`, the contents (that it's that version of Jellyfish AI) and the code signature, then replaces the app and reopens it (settings, jellyfish, and conversations are kept). Nothing happens unless you press it
   - It won't replace the app while jellyfish are working. If the app was opened from a location that can't be changed (such as inside the .dmg), or macOS stops the replacement (System Settings › Privacy & Security › App Management), it points you to the download page
+- **Update in Terminal** in the same dialog runs the command shown there in Terminal. If you installed from source with `scripts/install.sh`, it pulls, rebuilds and replaces the app (keeping your own signature)
 - To replace it by hand, download the .dmg and drag it to the Applications folder, the same as in [Install](#download-and-install)
+
+### Update with one command
+
+From Terminal you can check for a new version and update right away. The script ships inside the app, so you don't need the source.
+
+```bash
+# Only check for a new version (exit code 0 = up to date, 10 = a new version exists)
+/Applications/JellyfishAI.app/Contents/Resources/update.sh --check
+
+# If there's a new version, download it, check it, replace the app and reopen it (asks first; --yes skips the question)
+/Applications/JellyfishAI.app/Contents/Resources/update.sh
+```
+
+- It checks the same things as the app's “Update”: it takes only `JellyfishAI-<version>.zip` and `SHA256SUMS.txt` from that release of this repository, and checks the checksum, the contents (that it's that version of Jellyfish AI) and the code signature (the same certificate, if your current copy is certificate-signed). It won't replace the app while jellyfish are working, and never uses sudo
+- From the source folder, use `scripts/update.sh`. **If you installed from source, use `scripts/update.sh --source`** (it checks there are no uncommitted changes, then runs `git pull --ff-only` → `scripts/install.sh`, which signs with your signing certificate if you have one, so permissions carry over)
+- `--app <path>` picks the .app to replace, and `--no-open` doesn't reopen it afterwards
 - If you use PC control or screen attachment after replacing it, grant the Screen Recording and Accessibility permissions again ([Good to know](#good-to-know))
 
 ### Stop being asked for permissions after every update
@@ -326,7 +343,7 @@ scripts/install.sh
 
 - `scripts/signing.sh create` creates a Jellyfish-only signing certificate (self-signed) in your login keychain, and `scripts/install.sh` signs the app with it and installs it. macOS treats "Jellyfish AI signed with the same certificate" as the same app, so folder (Desktop, Documents, …), Screen Recording and Accessibility permissions carry over to later updates
 - You'll be asked for the permissions once more, only the first time after switching to the certificate
-- Install later updates with `git pull` followed by `scripts/install.sh` too (the .dmg builds are ad-hoc signed, so replacing the app with one asks for the permissions again)
+- Install later updates with `scripts/update.sh --source` (`git pull` → `scripts/install.sh`) (the .dmg and .zip builds are ad-hoc signed, so replacing the app with one asks for the permissions again)
 - Check it with `scripts/signing.sh status`; stop using it with `scripts/signing.sh delete`
 
 ## Build from source

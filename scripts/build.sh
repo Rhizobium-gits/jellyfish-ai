@@ -47,6 +47,8 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
+# コマンド 1 つで新しい版に上げるスクリプト（ソースが無くても /Applications/JellyfishAI.app/Contents/Resources/update.sh で使える）
+install -m 755 "$ROOT/scripts/update.sh" "$APP/Contents/Resources/update.sh"
 
 # アイコン：Resources/AppIcon.png（正方形の絵）を macOS のアイコンの角丸の枠に収める。無ければクラゲのドット絵を描く
 TMP="$(mktemp -d)"

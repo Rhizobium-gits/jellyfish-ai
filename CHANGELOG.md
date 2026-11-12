@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 追加
+
+- **コマンド 1 つでアップデート**：`scripts/update.sh`（アプリの中にも `Contents/Resources/update.sh` として入れる）。`--check` で新しい版があるかだけ（終了コード 0 / 10）、そのままで、このリポジトリのそのリリースの `JellyfishAI-<版>.zip` と `SHA256SUMS.txt` だけを取り、チェックサム・バンドル ID・版・`codesign --verify --strict`（いまの版が証明書の署名なら同じ証明書か）を確かめ、作業中のクラゲがいなければ入れ替えて開き直す（入れ替える前に聞く。`--yes` で聞かない、`--app`・`--no-open`）。`--source` でソースから（コミットしていない変更が無いことを確かめて `git pull --ff-only` → `scripts/install.sh`）
+- アプリの「アップデートを確認…」で新しい版があれば **「ターミナルでアップデート」**：実行するコマンドを確認の画面に出し、ターミナルで動かす。`scripts/install.sh` で入れたときは、そのソースのフォルダを覚えておき（データフォルダの `source-checkout`）、`scripts/update.sh --source` を勧める
+
 ## [1.0.7] - 2026-11-12
 
 ### 変更

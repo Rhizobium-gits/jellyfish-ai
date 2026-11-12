@@ -401,3 +401,125 @@ final class RecordingBackend: AgentBackend {
         #expect(AgentRuntime.attachedFiles(in: "添付なし - /tmp") == [])
     }
 }
+
+/// scripts/update.sh を、偽のリリースの情報（JELLYFISH_RELEASE_JSON）と偽のアプリで動かす（ネットにつながない・入れ替えない）
+@Suite struct UpdateScriptTests {
+    static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    func fakeApp(_ dir: URL, version: String, id: String = "ai.jellyfish.desktop") throws -> URL {
+        let app = dir.appendingPathComponent("JellyfishAI.app")
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        let info: NSDictionary = ["CFBundleIdentifier": id, "CFBundleShortVersionString": version]
+        info.write(to: app.appendingPathComponent("Contents/Info.plist"), atomically: true)
+        return app
+    }
+
+    func release(_ dir: URL, tag: String, zipURL: String? = nil) throws -> URL {
+        let v = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        let base = "https://github.com/\(AppInfo.repo)/releases/download/\(tag)/"
+        let json: [String: Any] = ["tag_name": tag, "assets": [
+            ["name": "JellyfishAI.dmg", "browser_download_url": base + "JellyfishAI.dmg"],
+            ["name": "JellyfishAI-\(v).zip", "browser_download_url": zipURL ?? base + "JellyfishAI-\(v).zip"],
+            ["name": "SHA256SUMS.txt", "browser_download_url": base + "SHA256SUMS.txt"],
+        ]]
+        let f = dir.appendingPathComponent("latest-\(UUID().uuidString).json")
+        try JSONSerialization.data(withJSONObject: json).write(to: f)
+        return f
+    }
+
+    func run(_ args: [String], json: URL) throws -> (Int32, String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = [Self.root.appendingPathComponent("scripts/update.sh").path] + args
+        var env = ProcessInfo.processInfo.environment
+        env["JELLYFISH_RELEASE_JSON"] = json.path
+        p.environment = env
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = out
+        p.standardInput = FileHandle.nullDevice
+        try p.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    func tmp() throws -> URL {
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("jf-upd-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    @Test func reportsANewerRelease() throws {
+        let d = try tmp(); defer { try? FileManager.default.removeItem(at: d) }
+        let app = try fakeApp(d, version: "1.0.6")
+        let (rc, out) = try run(["--check", "--app", app.path], json: try release(d, tag: "v1.0.7"))
+        #expect(rc == 10)
+        #expect(out.contains("1.0.7"))
+        #expect(out.contains("releases/download/v1.0.7/JellyfishAI-1.0.7.zip"))
+    }
+
+    @Test func comparesVersionsAsNumbers() throws {
+        let d = try tmp(); defer { try? FileManager.default.removeItem(at: d) }
+        // 1.0.10 は 1.0.9 より新しい（文字の順ではない）
+        let (rc, out) = try run(["--check", "--app", try fakeApp(d, version: "1.0.10").path], json: try release(d, tag: "v1.0.9"))
+        #expect(rc == 0)
+        #expect(out.contains("最新です"))
+        let (rc2, _) = try run(["--check", "--app", try fakeApp(try tmp(), version: "1.0.9").path], json: try release(d, tag: "v1.0.10"))
+        #expect(rc2 == 10)
+    }
+
+    @Test func refusesFilesFromElsewhere() throws {
+        let d = try tmp(); defer { try? FileManager.default.removeItem(at: d) }
+        let app = try fakeApp(d, version: "1.0.6")
+        let (rc, out) = try run(["--check", "--app", app.path],
+                                json: try release(d, tag: "v1.0.7", zipURL: "https://example.com/JellyfishAI-1.0.7.zip"))
+        #expect(rc == 1)
+        #expect(out.contains("見つかりません"))
+        let (rc2, _) = try run(["--check", "--app", app.path], json: try release(d, tag: "v1.0.7;rm"))
+        #expect(rc2 == 1)
+    }
+
+    @Test func refusesOtherApps() throws {
+        let d = try tmp(); defer { try? FileManager.default.removeItem(at: d) }
+        let app = try fakeApp(d, version: "1.0.6", id: "com.example.other")
+        let (rc, out) = try run(["--check", "--app", app.path], json: try release(d, tag: "v1.0.7"))
+        #expect(rc == 1)
+        #expect(out.contains("Jellyfish AI ではありません"))
+    }
+
+    @Test func asksBeforeReplacing() throws {
+        // --yes も端末も無ければ、入れ替えに進まない
+        let d = try tmp(); defer { try? FileManager.default.removeItem(at: d) }
+        let app = try fakeApp(d, version: "1.0.6")
+        let (rc, out) = try run(["--app", app.path], json: try release(d, tag: "v1.0.7"))
+        #expect(rc == 1)
+        #expect(out.contains("--yes"))
+        #expect(!out.contains("ダウンロードしています"))
+    }
+
+    @Test func terminalCommandPrefersTheSourceCheckout() throws {
+        let d = try tmp(); defer { try? FileManager.default.removeItem(at: d) }
+        let data = d.appendingPathComponent("data"), src = d.appendingPathComponent("src dir")
+        let app = try fakeApp(d, version: "1.0.6")
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        // アプリの中の update.sh
+        let bundled = app.appendingPathComponent("Contents/Resources/update.sh")
+        try FileManager.default.createDirectory(at: bundled.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/bash\n".write(to: bundled, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundled.path)
+        #expect(AppUpdater.terminalCommand(dataDir: data, bundle: app) == "'\(bundled.path)' --yes --app '\(app.path)'")
+        // ソースから入れていれば git pull → install.sh
+        try FileManager.default.createDirectory(at: src.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: src.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        let s = src.appendingPathComponent("scripts/update.sh")
+        try "#!/bin/bash\n".write(to: s, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: s.path)
+        try (src.path + "\n").write(to: data.appendingPathComponent("source-checkout"), atomically: true, encoding: .utf8)
+        #expect(AppUpdater.terminalCommand(dataDir: data, bundle: app) == "cd '\(src.path)' && scripts/update.sh --source --yes")
+        // 覚えた場所が git の checkout でなければ使わない
+        try FileManager.default.removeItem(at: src.appendingPathComponent(".git"))
+        #expect(AppUpdater.terminalCommand(dataDir: data, bundle: app)?.contains("--source") == false)
+        #expect(AppUpdater.terminalCommand(dataDir: data, bundle: d.appendingPathComponent("none.app")) == nil)
+    }
+}

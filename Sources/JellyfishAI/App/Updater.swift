@@ -114,6 +114,34 @@ enum AppUpdater {
     }
 }
 
+extension AppUpdater {
+    /// ターミナルで上げるときのコマンド（許可を求める画面にそのまま出し、そのとおりに実行する）。
+    /// ソースから入れていれば（scripts/install.sh が覚えた場所に git の checkout と scripts/update.sh があれば）ソースから
+    /// （git pull --ff-only → scripts/install.sh）、そうでなければアプリの中の update.sh でリリース版に上げる
+    static func terminalCommand(dataDir: URL = AppPaths.dataDir, bundle: URL = Bundle.main.bundleURL) -> String? {
+        let q = EngineLogin.shellQuote
+        let fm = FileManager.default
+        if let raw = try? String(contentsOf: dataDir.appendingPathComponent("source-checkout"), encoding: .utf8) {
+            let dir = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if dir.hasPrefix("/"), fm.fileExists(atPath: dir + "/.git"), fm.isExecutableFile(atPath: dir + "/scripts/update.sh") {
+                return "cd \(q(dir)) && scripts/update.sh --source --yes"
+            }
+        }
+        let script = bundle.appendingPathComponent("Contents/Resources/update.sh")
+        guard bundle.pathExtension == "app", fm.isExecutableFile(atPath: script.path) else { return nil }
+        return "\(q(script.path)) --yes --app \(q(bundle.path))"
+    }
+
+    /// そのコマンドをターミナルで動かす（データフォルダの update.command）
+    static func runInTerminal(_ command: String) -> Bool {
+        let q = EngineLogin.shellQuote
+        let text = ["#!/bin/zsh -l", "clear",
+                    "printf '%s\\n\\n  %s\\n\\n' \(q("🪼 Jellyfish AI: " + L("新しい版に上げます（あなたが許可したコマンド）:"))) \(q(command))",
+                    command].joined(separator: "\n") + "\n"
+        return EngineLogin.openScript(text, name: "update")
+    }
+}
+
 /// 1 回のアップデート（ダウンロード → 確かめる → 入れ替える → 開き直す）。進み具合を小さな画面に出す
 final class UpdateSession: NSObject, URLSessionTaskDelegate {
     private static var current: UpdateSession?
