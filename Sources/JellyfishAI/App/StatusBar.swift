@@ -2,6 +2,7 @@ import AppKit
 
 /// メニューバーのクラゲアイコン。クラゲを全部隠しても、ここから操作・再表示できる。
 final class StatusBarController: NSObject, NSMenuDelegate {
+    private var lastEngineRefresh = Date.distantPast
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let manager: JellyManager
     private let shortcuts: Shortcuts
@@ -67,6 +68,44 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
         let img = MenuImages.statusFrame(p)
         if item.button?.image !== img { item.button?.image = img }
+    }
+
+    /// アカウントと AI：ログインの状態・使う AI（既定）・ログイン（公式の画面をターミナルで）・API キーでの課金の許可
+    private func accountsMenuItem(_ s: AppSettings) -> NSMenuItem {
+        let item = NSMenuItem(title: L("🔑 アカウントと AI"), action: nil, keyEquivalent: "")
+        let am = NSMenu()
+        am.autoenablesItems = false
+        // 開くたびに裏で確かめ直す（少し前に確かめていれば何もしない）
+        if Date().timeIntervalSince(lastEngineRefresh) > 20 {
+            lastEngineRefresh = Date()
+            manager.refreshEngineStatus()
+        }
+        for e in AgentEngine.allCases {
+            let st = EngineAuth.shared.cached(e)
+            am.addItem(.header("\(st?.usable == true ? "✓" : (st.map { if case .paidAPI = $0.login { return "⚠️" }; return "・" } ?? "…")) \(e.displayName): \(st?.summary ?? L("確認中…"))"))
+        }
+        am.addItem(.separator())
+        am.addItem(.header(L("使う AI（クラゲごとに選んでいないとき）")))
+        for e in AgentEngine.allCases {
+            am.addItem(ClosureMenuItem(e.displayName, checked: s.engine == e) { [weak self] in self?.manager.setDefaultEngine(e) })
+        }
+        am.addItem(.separator())
+        for e in AgentEngine.allCases {
+            let usable = EngineAuth.shared.cached(e)?.usable == true
+            am.addItem(ClosureMenuItem(usable ? L("%@：別のアカウントでログイン…", e.displayName) : L("%@ にログイン…", e.displayName)) { [weak self] in
+                self?.manager.openLogin(e)
+            })
+        }
+        am.addItem(ClosureMenuItem(L("アカウントと AI の画面を開く…")) { [weak self] in self?.manager.showAccounts() })
+        am.addItem(.separator())
+        am.addItem(ClosureMenuItem(L("API キー（従量課金）での利用を許可"), checked: s.allowAPIBilling) { [weak self] in
+            guard let self else { return }
+            self.manager.setAllowAPIBilling(!self.manager.settings.allowAPIBilling)
+        })
+        am.addItem(.header(L("・ログインはそれぞれの公式の画面（ターミナルとブラウザ）で。Jellyfish はパスワード・API キーを扱わない")))
+        am.addItem(.header(L("・勝手に課金しない：API キー（従量課金）でログインしている AI は使わず、API キーの環境変数も渡さない")))
+        item.submenu = am
+        return item
     }
 
     /// 自律組織：タスクに合わせてエージェントが自分でチームを組み、成果と反応から組織の選び方を学ぶ
@@ -273,6 +312,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         fps.submenu = fpsMenu
         menu.addItem(fps)
 
+        menu.addItem(accountsMenuItem(s))
+
         // クラゲごとにチャットで選んでいないときのモデル
         let modelItem = NSMenuItem(title: L("🧠 モデル（既定）: %@", manager.defaultModelName), action: nil, keyEquivalent: "")
         let mm = NSMenu()
@@ -302,6 +343,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         pm.addItem(.header(L("・認証情報の持ち出し、意図しない外部送信、取り返しのつかない操作は")))
         pm.addItem(.header(L("　Claude Code の安全判定で止まる（OS の権限設定は変更しない）")))
         pm.addItem(.header(L("・作業フォルダはクラゲごと（既定はホーム）")))
+        pm.addItem(.separator())
+        // Claude 以外の AI で動かすときの決まり
+        pm.addItem(.header(L("使う AI（既定）: %@", s.engine.displayName)))
+        for e in AgentEngine.allCases where e != .claude { pm.addItem(.header("・\(e.displayName): " + e.policyLine)) }
+        pm.addItem(.header(L("・チーム・PC 操作・自律組織・外部ツール（MCP）は Claude だけ")))
+        pm.addItem(.header(s.allowAPIBilling ? L("⚠️ API キー（従量課金）での利用を許可しています") : L("・API キー（従量課金）でのログイン・環境変数は使わない")))
         pm.addItem(.separator())
         pm.addItem(.header("claude: \(manager.claudePathDescription)"))
         policy.submenu = pm

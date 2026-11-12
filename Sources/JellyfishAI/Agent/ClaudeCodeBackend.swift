@@ -39,6 +39,8 @@ final class ClaudeCodeBackend: AgentBackend {
         return m != requested && !(requested == "auto" && m == "acceptEdits")
     }
 
+    var engine: AgentEngine { .claude }
+    var assignsSessionID: Bool { false }
     var displayName: String { "Claude Code" }
     var defaultModel: String? { model }
 
@@ -79,7 +81,7 @@ final class ClaudeCodeBackend: AgentBackend {
         args += ["--", prompt]
         p.arguments = args
         p.currentDirectoryURL = cwd
-        p.environment = ShellEnvironment.shared.environment().merging(options.env) { _, new in new }
+        p.environment = ShellEnvironment.shared.agentEnvironment().merging(options.env) { _, new in new }
         p.standardInput = FileHandle.nullDevice
 
         let out = Pipe(), err = Pipe()
@@ -146,7 +148,7 @@ final class ClaudeHandle: AgentHandle {
     }
 }
 
-private final class StderrBuffer {
+final class StderrBuffer {
     private var data = Data()
     private let lock = NSLock()
     func append(_ d: Data) { lock.lock(); data.append(d); if data.count > 64_000 { data = data.suffix(32_000) }; lock.unlock() }

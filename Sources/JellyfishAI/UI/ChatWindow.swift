@@ -172,6 +172,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     /// チャットを開く前に使っていたアプリ（画面認識でどの画面を撮るか・アプリ名に使う）
     private var contextApp: NSRunningApplication?
     private var capturing = false
+    /// このクラゲが使う AI（Claude・ChatGPT（Codex）・Gemini。先頭は「既定」＝メニューバーの「使う AI」）
+    private let enginePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let effortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var inputHeight: NSLayoutConstraint!
@@ -274,13 +276,14 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         terminalButton.toolTip = L("同じセッションをターミナルの claude --resume で開く")
 
         // モデルと強さは、ほかのボタンに押されて見えなくならないよう上の段に置く
-        let titleRow = NSStackView(views: [dot, titleLabel, NSView(), modelPopup, effortPopup, renameButton, retryButton, cancelButton])
+        let titleRow = NSStackView(views: [dot, titleLabel, NSView(), enginePopup, modelPopup, effortPopup, renameButton, retryButton, cancelButton])
         titleRow.orientation = .horizontal
         titleRow.spacing = 8
         let infoRow = NSStackView(views: [stateLabel])
         infoRow.orientation = .horizontal
 
-        for (p, items) in [(modelPopup, AgentChatController.models.map(\.label)), (effortPopup, AgentChatController.efforts.map(\.label)),
+        for (p, items) in [(enginePopup, [L("AI: 既定")] + AgentEngine.allCases.map(\.displayName)),
+                           (modelPopup, AgentChatController.models.map(\.label)), (effortPopup, AgentChatController.efforts.map(\.label)),
                            (screenPopup, ScreenMode.allCases.map(\.label))] {
             p.addItems(withTitles: items)
             p.controlSize = .small
@@ -289,6 +292,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             p.target = self
         }
         modelPopup.action = #selector(modelChanged)
+        enginePopup.action = #selector(engineChanged)
+        enginePopup.toolTip = L("このクラゲが使う AI。変えると新しい会話になります（ログインはメニューバーのクラゲ › 🔑 アカウントと AI）")
         screenPopup.action = #selector(screenModeChanged)
         screenPopup.toolTip = L("「この画面」などと書いたとき、送信時の画面を撮って添付する（Jellyfish のウィンドウは写りません）")
         for b in [attachButton, clearAttachButton] {
@@ -317,7 +322,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         minFolder.priority = .init(255)
         minFolder.isActive = true
         screenPopup.setContentCompressionResistancePriority(.init(240), for: .horizontal)
-        for p in [modelPopup, effortPopup] { p.setContentCompressionResistancePriority(.init(760), for: .horizontal) }
+        for p in [enginePopup, modelPopup, effortPopup] { p.setContentCompressionResistancePriority(.init(760), for: .horizontal) }
         titleLabel.setContentCompressionResistancePriority(.init(200), for: .horizontal)
         titleLabel.lineBreakMode = .byTruncatingTail
         // 長い作業フォルダの名前は真ん中を省いて、ほかのボタンを押し出さない
@@ -506,10 +511,23 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         if let l = manager?.listeningStatus(jelly) { st = "\(r.title) · " + l }
         screenPopup.selectItem(at: ScreenMode.allCases.firstIndex(of: manager?.settings.screenMode ?? .auto) ?? 0)
         // 「既定のモデル」の項目に、いまの既定（メニューの設定）を書く
-        modelPopup.item(at: 1)?.title = L("既定（%@）", manager?.defaultModelName ?? L("Claude Code に任せる"))
-        modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 1)
+        // AI：先頭の「既定」にいまの既定を書く。Claude 以外ではモデル・強さは CLI の既定に任せ、PC 操作は使えない
+        let eng = runtime.effectiveEngine
+        enginePopup.item(at: 0)?.title = L("AI: 既定（%@）", (manager?.settings.engine ?? .claude).displayName)
+        enginePopup.selectItem(at: runtime.engine.flatMap { e in AgentEngine.allCases.firstIndex(of: e).map { $0 + 1 } } ?? 0)
+        enginePopup.isEnabled = !running
+        modelPopup.item(at: 1)?.title = eng == .claude
+            ? L("既定（%@）", manager?.defaultModelName ?? L("Claude Code に任せる"))
+            : L("モデル: %@ の既定", eng.cliTitle)
+        modelPopup.selectItem(at: eng == .claude ? (AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 1) : 1)
+        modelPopup.isEnabled = eng == .claude
         effortPopup.selectItem(at: AgentChatController.efforts.firstIndex { $0.value == runtime.effort } ?? 0)
-        effortPopup.isEnabled = manager?.supportsEffort ?? true
+        effortPopup.isEnabled = eng == .claude && (manager?.supportsEffort ?? true)
+        if eng != .claude { effortPopup.selectItem(at: 0) }
+        pcButton.isEnabled = eng.supportsJellyfishTools
+        pcButton.toolTip = eng.supportsJellyfishTools
+            ? L("このエージェントに PC 操作（画面を見る・クリック・入力）を許す。操作中は画面の縁が光り、Esc で止まる。次の指示から反映")
+            : L("PC 操作は Claude のクラゲだけで使えます")
         let listening = manager?.isListening(jelly) ?? false
         listenButton.state = listening ? .on : .off
         listenButton.title = listening ? L("🎧 停止") : "🎧"
@@ -527,7 +545,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         cancelButton.isHidden = !running
         let last = runtime.lastTurn
         retryButton.isHidden = running || last == nil || last?.state == .completed
-        terminalButton.isHidden = !runtime.sessionStarted
+        // Claude：同じ会話をターミナルで。Gemini：このフォルダで Gemini を開く（フォルダの信頼もここで）。Codex：出さない
+        terminalButton.isHidden = eng == .codex || (eng == .claude && !runtime.sessionStarted)
+        terminalButton.title = eng == .gemini ? L("Gemini をこのフォルダで開く") : L("Claude Code で開く")
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         folderButton.title = "📁 " + runtime.cwd.path.replacingOccurrences(of: home, with: "~")
 
@@ -861,11 +881,29 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     }
 
     /// 同じセッションをターミナルで開く（.command ファイル経由。オートメーション権限は不要）
+    @objc private func engineChanged() {
+        let i = enginePopup.indexOfSelectedItem
+        let e: AgentEngine? = i <= 0 ? nil : AgentEngine.allCases[i - 1]
+        guard e != runtime.engine else { return }
+        runtime.changeEngine(e)
+        // 選んだ AI にログインしていなければ、すぐ分かるように確かめ直す
+        manager?.refreshEngineStatus([runtime.effectiveEngine])
+        refresh()
+        reloadTranscript()
+        window.makeFirstResponder(input)
+    }
+
     @objc private func openInTerminal() {
+        if runtime.effectiveEngine == .gemini {
+            manager?.openLogin(.gemini, folder: runtime.cwd)
+            return
+        }
         guard runtime.sessionStarted, let claude = manager?.claudeExecutable else { return }
+        // ターミナルでも、許可していなければ API キー（従量課金）の環境変数を外して開く
+        let unset = BillingGuard.allowAPI ? "" : "unset " + BillingGuard.apiEnvKeys.joined(separator: " ") + "\n"
         let script = """
         #!/bin/zsh -l
-        cd \(shellQuote(runtime.cwd.path)) && exec \(shellQuote(claude.path)) --resume \(shellQuote(runtime.sessionID))
+        \(unset)cd \(shellQuote(runtime.cwd.path)) && exec \(shellQuote(claude.path)) --resume \(shellQuote(runtime.sessionID))
         """
         let url = runtime.dir.appendingPathComponent("open-in-claude.command")
         do {

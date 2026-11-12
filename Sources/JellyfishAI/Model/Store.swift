@@ -77,6 +77,14 @@ struct AppSettings: Codable {
     var orgMode: Bool = false
     /// 自律組織の結果とユーザーの反応から、組織の選び方を学ぶ（端末内だけで計算し、どこにも送らない）
     var orgLearning: Bool = true
+    /// 使う AI（クラゲごとに選んでいないときの既定）
+    var engine: AgentEngine = .claude
+    /// API キー（従量課金）でログインしている CLI を使ってよいか、API キーの環境変数を CLI に渡してよいか。
+    /// 既定は許可しない（勝手に課金しない）。メニューで本人が確認してオンにしたときだけ
+    var allowAPIBilling: Bool = false
+    /// codex / gemini の実行ファイル（空なら自動で探す）
+    var codexPath: String = ""
+    var geminiPath: String = ""
 
     init() {}
 
@@ -106,6 +114,10 @@ struct AppSettings: Codable {
         language = c.value(AppLanguage.self, .language, d.language)
         orgMode = c.value(Bool.self, .orgMode, d.orgMode)
         orgLearning = c.value(Bool.self, .orgLearning, d.orgLearning)
+        engine = c.value(AgentEngine.self, .engine, d.engine)
+        allowAPIBilling = c.value(Bool.self, .allowAPIBilling, d.allowAPIBilling)
+        codexPath = c.value(String.self, .codexPath, d.codexPath)
+        geminiPath = c.value(String.self, .geminiPath, d.geminiPath)
     }
 }
 

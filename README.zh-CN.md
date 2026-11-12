@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  这是一款 macOS 应用：Claude 的像素风角色常驻在桌面右边缘，每一只都作为独立的 AI 智能体（Claude Code）运行。<br>
+  这是一款 macOS 应用：AI 智能体常驻在桌面上，每一个都作为独立的 AI 智能体（Claude Code）运行。<br>
   <i>macOS 桌面伙伴：屏幕边缘的每个小像素角色都是一个独立的 Claude Code 智能体。<br>按下 ⌘L，输入，然后看着它思考、工作、完成。</i>
 </p>
 
@@ -26,6 +26,7 @@
   &nbsp;·&nbsp; <a href="#启动方法">启动方法</a>
   &nbsp;·&nbsp; <a href="#快速上手">快速上手</a>
   &nbsp;·&nbsp; <a href="#功能">功能</a>
+  &nbsp;·&nbsp; <a href="#使用的-ai-与账户">使用的 AI</a>
   &nbsp;·&nbsp; <a href="#自主组织模式">自主组织模式</a>
   &nbsp;·&nbsp; <a href="#语言">语言</a>
 </p>
@@ -35,17 +36,19 @@
 </p>
 
 > [!NOTE]
-> 这是个人开发的非官方应用，与 Anthropic 无关。Claude、Claude Code 以及 Claude Code 的角色归 Anthropic 所有。
+> 这是个人开发的非官方应用，与 Anthropic、OpenAI、Google 无关。Claude、Claude Code 以及 Claude Code 的角色归 Anthropic 所有，ChatGPT 和 Codex 归 OpenAI 所有，Gemini 归 Google 所有。
 
 ## 下载与安装
 
 **所需条件**
 
 - macOS 14 或更高版本。这是 Apple 芯片 / Intel 均可运行的通用（universal）版本（已在 Apple 芯片的 macOS 26 上验证）。转写系统声音需要 macOS 26 或更高版本
-- 已登录的 [Claude Code](https://code.claude.com/docs/en/setup)。会自动从 PATH、`~/.local/bin`、Homebrew 以及 VS Code / Cursor 扩展内置的 `claude` 中选出最新版本（正在使用的版本和位置显示在菜单栏的“执行策略”中）
+- 以下 AI 的 CLI 中至少一个（[使用的 AI 与账户](#使用的-ai-与账户)）。Claude Code 可使用的功能最多
+  - [Claude Code](https://code.claude.com/docs/en/setup)（Claude 账户）。会自动从 PATH、`~/.local/bin`、Homebrew 以及 VS Code / Cursor 扩展内置的 `claude` 中选出最新版本
+  - [Codex CLI](https://github.com/openai/codex)（ChatGPT 账户）、[Gemini CLI](https://github.com/google-gemini/gemini-cli)（Google 账户）
 
-1. **安装 Claude Code 并登录**
-   按照 [Claude Code 的安装说明](https://code.claude.com/docs/en/setup) 安装，然后在终端中启动一次 `claude` 并登录（也可以用 `claude auth login`）。如果你在用 VS Code / Cursor 的 Claude Code 扩展，可以直接使用扩展内置的 `claude`
+1. **安装要使用的 AI 的 CLI**
+   按照各自的官方说明安装 Claude Code、Codex CLI 或 Gemini CLI。如果你在用 VS Code / Cursor 的 Claude Code 扩展，可以直接使用扩展内置的 `claude`。首次启动时出现的“账户与 AI”界面可以用来登录（之后安装的 AI 也可以在菜单栏的水母 › 🔑 账户与 AI 中登录）
 2. **下载**
    从 [Releases 的最新版本](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) 下载 `JellyfishAI-<版本>.dmg`（也提供 `.zip`，内容相同）
 3. **放进应用程序文件夹**
@@ -56,9 +59,9 @@
 可以将同一发布中的 `SHA256SUMS.txt` 与 `shasum -a 256 JellyfishAI-<版本>.dmg` 的结果对照，确认下载的文件是否完好。
 
 > [!IMPORTANT]
-> 智能体会 **不经确认** 地创建、编辑、删除文件和执行命令（Claude Code 的 Auto 模式。危险的操作会被 Claude Code 的安全判定拦下）。工作文件夹默认为主目录。详情请参阅 [权限与安全](#权限与安全) 和 [SECURITY.md](SECURITY.md)。
+> 智能体会 **不经确认** 地创建、编辑、删除文件和执行命令（Claude Code 的 Auto 模式等。危险的操作由各 AI 自身的安全机制拦下）。工作文件夹默认为主目录。详情请参阅 [权限与安全](#权限与安全) 和 [SECURITY.md](SECURITY.md)。
 >
-> 智能体使用你的 Claude Code（Pro / Max 套餐或 API 密钥）运行，并消耗其用量。Claude Code 单次调用光是基础部分就要用掉数万 token，因此并行运行很多只水母会很快达到用量上限。本周用了多少，可以在菜单栏的水母中查看。
+> 智能体使用你的 AI 账户（Claude 的 Pro / Max、ChatGPT、Google 账户）运行，并消耗其用量。**Jellyfish 不处理 API 密钥，也不会擅自收费**（以 API 密钥、按量计费登录的 AI，除非你允许，否则不会使用）。Claude Code 单次调用光是基础部分就要用掉数万 token，同时运行很多水母会很快达到用量上限。本周用了多少可以在菜单栏的水母中查看。
 
 ## 启动方法
 
@@ -93,7 +96,7 @@
 - 本周用量的进度条和百分比：**全部模型** 和 **Fable** 两个额度，以及各自的重置时间（75% 变为橙色，90% 变为红色）
 - 打开菜单时，如果距离上次读取已超过 1 分钟，会重新从 Claude Code 读取（`claude auth status` 和 `claude -p /usage`。`/usage` 是 Claude Code 的内置命令，不会调用模型，也不消耗 token）。不会在后台定期获取
 
-在下方可以新建水母、隐藏 / 显示全部水母、打开过去的会话和智能体列表，并设置外观、大小、屏幕识别、🧠 模型（默认）、执行策略、电脑操控、团队、🧬 自主组织、外部工具（MCP）、登录时自动启动、🌐 语言。“关于 Jellyfish AI”“检查更新…”也在这里。
+在下方可以新建水母、隐藏 / 显示全部水母、打开过去的会话和智能体列表，并设置外观、大小、屏幕识别、🔑 账户与 AI、🧠 模型（默认）、执行策略、电脑操控、团队、🧬 自主组织、外部工具（MCP）、登录时自动启动、🌐 语言。“关于 Jellyfish AI”“检查更新…”也在这里。
 
 ## 功能
 
@@ -248,6 +251,31 @@ flowchart LR
 - “自动”会跟随 macOS 的“首选语言”（如果不是日语、英语、中文中的任何一种，则使用英语）
 - 指向屏幕的词语判定（“この画面”“this screen”“这个屏幕”等），以及自主组织中对委托类型和反馈的识别，都支持这 3 种语言
 
+## 使用的 AI 与账户
+
+运行智能体的 AI 可以从 **Claude（Claude Code）、ChatGPT（Codex CLI）、Gemini（Gemini CLI）** 中选择。每一个都以 **你自己账户的登录状态**，运行这台 Mac 上安装的官方 CLI。
+
+| AI | CLI | 登录所用的账户 | 不经确认运行时的规则 | 可用功能 |
+|---|---|---|---|---|
+| Claude | Claude Code | Claude（Pro、Max 等） | Auto 模式（危险操作由 Claude Code 的安全判断阻止） | 全部 |
+| ChatGPT | Codex CLI | ChatGPT（Plus、Pro 等） | 沙盒（只能写入工作文件夹内、无网络） | 对话、工作、继续 |
+| Gemini | Gemini CLI | Google 账户 | auto_edit（只自动批准工作文件夹内的编辑、不执行命令） | 对话、工作、继续 |
+
+- **首次启动时** 会出现“账户与 AI”界面，可以分别登录各个 AI。未安装的 AI 可以在“安装方法…”中看到官方的安装命令（Jellyfish 不会代你安装）
+- **之后** 要添加账户、用其他账户重新登录或更改使用的 AI，请在菜单栏的水母 › **🔑 账户与 AI** 中操作。登录状态（✓・⚠️）也显示在这里
+- **也可以为每只水母选择 AI**：聊天窗口顶部的“AI”。更改后会开始新的对话。未单独选择的水母遵循菜单中的“要使用的 AI”。队友使用与创建者相同的 AI
+- 登录时会在终端中打开各 CLI 的官方登录（`claude auth login --claudeai`、`codex login`、Gemini CLI 的“Sign in with Google”），由你本人在浏览器中完成。**Jellyfish 不会接收或保存密码、令牌或 API 密钥**
+- 团队（分工）、电脑操控、自主组织、外部工具（MCP）以及模型的“自动”仅限 Claude。Codex 和 Gemini 的模型使用各自 CLI 的默认值
+- Gemini 会确认是否信任文件夹，在不信任的文件夹中不会运行。请在聊天中用“在此文件夹打开 Gemini”打开，仅在这是你信任的文件夹时才选择信任（Jellyfish 不会跳过这项确认）
+
+### 不会擅自收费
+
+- Jellyfish **不使用 API 密钥（按量计费）**。Claude 也一样
+  - 即使 shell 设置中有 `ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`CODEX_API_KEY`、`GEMINI_API_KEY`、`GOOGLE_API_KEY` 等，也不会传给智能体的 CLI
+  - 如果 CLI 以 API 密钥或云服务（Anthropic Console、Bedrock、Vertex AI 等）登录，就不运行该水母，并提示你用订阅账户重新登录
+- 只有在确实想用 API 密钥时，才在菜单栏的水母 › 🔑 账户与 AI 中打开“允许使用 API 密钥（按量计费）”（会请求确认。各 API 会按使用量收费）
+- 超出订阅用量上限时是否购买额外用量，保持各账户自己的设置（Jellyfish 不会更改）
+
 ## 更新
 
 - 在菜单栏的水母 › **检查更新…** 中，向 GitHub 确认是否有新版本（仅在选择时。不会自动联网）
@@ -290,6 +318,7 @@ scripts/install.sh          # 构建后放入应用程序文件夹并启动
 
 ## 权限与安全
 
+- Jellyfish 不处理 API 密钥，也不会擅自收费。不使用以 API 密钥（按量计费）登录的 AI，也不传递 API 密钥环境变量（[不会擅自收费](#不会擅自收费)）
 - 智能体以 Claude Code 官方的 **Auto 模式**（`--permission-mode auto`）运行。无需确认即可进行文件操作和命令执行，带出认证信息、意外的对外发送、无法挽回的操作等会被 Claude Code 一侧的安全判定拦下。所加的选项会在启动时先用 `claude --help` 确认存在后再使用
 - 当前的权限范围以及正在使用的 `claude` 的位置和版本，可以在菜单栏的“执行策略”中查看
 - 不会更改 macOS 的权限设置。只有在使用屏幕识别时，才需要在“系统设置 › 隐私与安全性 › 屏幕录制”中允许 Jellyfish AI
@@ -326,7 +355,7 @@ Claude Code 的会话（`~/.claude/projects/`）属于 Claude Code，因此即�
 - 设计说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 可以通过 `jellyfish://` URL scheme 从外部操作
   - 随时可用（快捷指令.app、Raycast 等）：`new`, `open?agent=2`, `toggle`, `show`, `hide`, `arrange`, `style?v=pixel|realistic`, `scale?v=1.25`
-  - 仅在启动时加上环境变量 `JELLYFISH_AUTOMATION=1`，并用 `token=…` 附上数据文件夹中 `automation.token` 的口令时可用（用于自动测试和演示录制。`scripts/demo/recorder.swift` 会自动附上）：`renumber`, `prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
+  - 仅在启动时加上环境变量 `JELLYFISH_AUTOMATION=1`，并用 `token=…` 附上数据文件夹中 `automation.token` 的口令时可用（用于自动测试和演示录制。`scripts/demo/recorder.swift` 会自动附上）：`renumber`, `prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `accounts`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
 - 用 `.build/debug/JellyfishAI --pixel-sheet out.png` 输出像素画的帧一览，用 `--settle-test` 验证完成时的静止，用 `--account-menu out.png` 绘制菜单中的账户和用量栏（实际从 claude 读取）
 - 显示的文字在源码中用日语书写并用 `L("…")` 包裹，译文放在 `l10n/en.json`、`l10n/zh.json` 中。用 `scripts/l10n.py missing en` 查看缺失的译文，用 `scripts/l10n.py gen` 生成 Swift 的表，用 `scripts/l10n.py check` 检查缺失和 `%@` 的数量（CI 中也会检查）。用环境变量 `JELLYFISH_LANGUAGE=en` 可以固定语言启动
 - README 的 GIF 可以用 `scripts/demo/record.sh` 重新录制（不会触碰日常数据，而是用空的演示数据实际运行 Claude Code 来录制。需要 Pillow 和 ffmpeg）

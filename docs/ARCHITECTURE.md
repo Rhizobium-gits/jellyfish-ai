@@ -91,6 +91,15 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 - **片付け**：form_team が作った仲間は `JellyRecord.orgSpawned`。次の form_team で使わない、空いている仲間（とその下の仲間）を消す。リーダーが仲間を使わずにターンを終えたら、前の依頼の仲間を消す
 - **安全**：PC 操作のツールは仲間からの依頼のターンでは渡さない（`usesPCTools`）。仲間からの依頼の文では外部 MCP を読み込まない。学習は端末内だけで、どこにも送らない
 
+## 2.6.1 使う AI（Agent/Engines.swift・OtherBackends.swift）
+
+- `AgentEngine`（claude / codex / gemini）。クラゲごとに `AgentRuntime.engine`（meta.json、nil = 設定の `engine`）。変えると新しい会話
+- バックエンド：`ClaudeCodeBackend`（従来）、`CodexBackend`（`codex exec [resume] --json --skip-git-repo-check --config sandbox_mode="workspace-write" --config approval_policy="never" -- [id] <指示>`。会話の ID は thread.started で受け取る＝`assignsSessionID`）、`GeminiBackend`（`gemini -o stream-json --approval-mode auto_edit --session-id|--resume <id> --prompt=<指示>`）。出力はそれぞれ JSONL を `AgentEvent` に（`CodexEventParser`・`GeminiEventParser`）
+- オプションは `CLILocator` が `--help` で存在を確かめる（足りなければ「この版では使えない」）
+- 実行の前に `JellyManager.preflight`：`EngineAuth`（10 分まで覚える）で、サブスクリプションでログインしているときだけ動かす。API キー（従量課金）なら、`allowAPIBilling` がオンのときだけ
+- 子プロセスの環境変数は `ShellEnvironment.agentEnvironment()`（`BillingGuard` が API キーの環境変数を外す）
+- ログイン：`EngineLogin` がデータフォルダに `login-<engine>.command` を書いてターミナルで開く（環境変数を外してから公式のログインを実行）。初めての起動と「🔑 アカウントと AI」から
+
 ## 2.7 表示の言語（Localization/）
 
 - ソースには日本語をそのまま書き、`L("…")` / `L("…%@…", x)` で包む。`L10n.translate` が今の言語の表（`Strings+en.swift`・`Strings+zh.swift`、日本語 → 訳）を引き、無ければ日本語のまま

@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-11-12
+
+### 追加
+
+- **使う AI を選べる**：Claude（Claude Code）に加えて、ChatGPT（Codex CLI）・Gemini（Gemini CLI）でもエージェントを動かせる。メニューバーの **🔑 アカウントと AI** で「使う AI（既定）」、チャットの上の段の「AI」でクラゲごとに選ぶ（変えると新しい会話。仲間は作った側と同じ AI）
+  - Codex は `codex exec --json` をサンドボックス（作業フォルダの中だけ書ける・ネットワークなし）で、Gemini は `--approval-mode auto_edit`（編集だけ自動で承認・コマンドは実行しない）で動かす。どちらも「すべて許可」系のオプションは付けない。Gemini のフォルダの信頼の確認は飛ばさない（チャットの「Gemini をこのフォルダで開く」から信頼できる）
+  - チーム・PC 操作・自律組織・外部ツール（MCP）・モデルの「自動」は Claude だけ
+- **ログインの画面**：初めて起動したときに「アカウントと AI」を出し、Claude・ChatGPT・Gemini にそれぞれログインできる。あとからのログイン・別のアカウントでのログイン・使う AI の変更はメニューバーから。ログインは各 CLI の公式のログインをターミナルで開いて本人が行う（Jellyfish はパスワード・トークン・API キーを扱わない）。入っていない AI は公式のインストールのコマンドを案内する
+
+### セキュリティ
+
+- **勝手に課金しない（Claude も同じ）**：API キー・クラウドの課金先を指す環境変数を CLI に渡さない。API キー・Anthropic Console・Bedrock・Vertex AI など、サブスクリプション以外でログインしている AI は動かさない。メニューで本人が確認して「API キー（従量課金）での利用を許可」をオンにしたときだけ使う
+- 「Claude Code で開く」のターミナルでも、API キーの環境変数を外してから開く
+
 ## [1.0.4] - 2026-11-12
 
 ### 追加
@@ -120,6 +134,7 @@
 - 長い会話を開いているとき、更新のたびにセッションのファイル全体を読み直していた（増えた分だけ読む）
 - Claude Code をあとから入れても、アプリを再起動するまで見つけられなかった
 
+[1.0.5]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.2

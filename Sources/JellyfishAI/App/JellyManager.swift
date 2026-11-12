@@ -34,6 +34,7 @@ final class JellyManager {
     init(store: Store) {
         self.store = store
         self.settings = store.loadSettings()
+        BillingGuard.allowAPI = settings.allowAPIBilling
     }
 
     // MARK: 起動
@@ -56,6 +57,12 @@ final class JellyManager {
         team = TeamCoordinator(manager: self, store: store)
         team?.org.onChange = { [weak self] in self?.onChange?() }
         team?.start()
+        EngineAuth.shared.onChange = { [weak self] in
+            self?.accountsWindow?.refresh()
+            self?.onChange?()
+        }
+        // 使う AI のログイン状態を先に確かめておく（最初の指示で待たないように）
+        refreshEngineStatus()
     }
 
     static let languageChanged = Notification.Name("JellyfishLanguageChanged")
@@ -172,6 +179,125 @@ final class JellyManager {
 
     // MARK: エージェント
 
+    /// クラゲのエンジン（nil = 既定の「使う AI」）のバックエンド。CLI が見つからない・使えない版なら nil
+    func backend(for e: AgentEngine?) -> AgentBackend? {
+        switch e ?? settings.engine {
+        case .claude:
+            return backend()
+        case .codex:
+            guard let i = CLILocator.find(.codex, override: settings.codexPath), i.missing == nil else { return nil }
+            return CodexBackend(install: i, model: nil)
+        case .gemini:
+            guard let i = CLILocator.find(.gemini, override: settings.geminiPath), i.missing == nil else { return nil }
+            return GeminiBackend(install: i, model: nil)
+        }
+    }
+
+    func cliPath(_ e: AgentEngine) -> String? {
+        switch e {
+        case .claude: return settings.claudePath
+        case .codex: return settings.codexPath
+        case .gemini: return settings.geminiPath
+        }
+    }
+
+    var cliPaths: [AgentEngine: String] { [.claude: settings.claudePath, .codex: settings.codexPath, .gemini: settings.geminiPath] }
+
+    /// 実行の前の確認：サブスクリプション（アカウント）でログインしているときだけ動かす。
+    /// API キー（従量課金）でログインしているときは、ユーザーがメニューで許可していなければ動かさない（勝手に課金しない。Claude も同じ）
+    func preflight(_ b: AgentBackend) -> String? {
+        let e = b.engine
+        var s = EngineAuth.shared.status(e, claudePath: settings.claudePath, cliPath: cliPath(e))
+        // 止める前に、いま確かめ直す（ターミナルでログインした直後でも、覚えていた古い状態で止めない）
+        if !s.usable { s = EngineAuth.shared.status(e, claudePath: settings.claudePath, cliPath: cliPath(e), maxAge: 0) }
+        return JellyManager.preflightMessage(e, s, allowAPI: settings.allowAPIBilling)
+    }
+
+    /// 動かさない理由（テストあり）。nil なら動かしてよい
+    static func preflightMessage(_ e: AgentEngine, _ s: EngineStatus, allowAPI: Bool) -> String? {
+        switch s.login {
+        case .subscription:
+            return nil
+        case .paidAPI(let how):
+            return allowAPI ? nil : L("%@ は %@（従量課金）でログインしているので使いません（勝手に課金しないため）。%@ でログインし直すか、メニューバーのクラゲ › 🔑 アカウントと AI で「API キー（従量課金）での利用を許可」をオンにしてください", e.displayName, how, e.accountKind)
+        case .loggedOut:
+            return L("%@ にログインしていません。メニューバーのクラゲ › 🔑 アカウントと AI から、%@ でログインしてください", e.displayName, e.accountKind)
+        case .notInstalled:
+            return L("%@ が入っていません。メニューバーのクラゲ › 🔑 アカウントと AI に、入れ方があります", e.cliTitle)
+        case .unsupported(let m):
+            return L("この版の %@ では使えません（%@ がありません）。%@ を新しくしてください", e.cliTitle, m, e.cliTitle)
+        case .unknown:
+            // 確かめられなかったとき（CLI の一時的な不調など）は止めない。API キーの環境変数は渡していないので、勝手に従量課金にはならない
+            return nil
+        }
+    }
+
+    /// 使う AI（既定）を変える
+    func setDefaultEngine(_ e: AgentEngine) {
+        updateSettings { $0.engine = e }
+        for (_, chat) in chats { chat.refresh() }
+        AppLog.write("engine default: \(e.rawValue)")
+    }
+
+    /// API キー（従量課金）での利用の許可。オンにするときは本人に確かめる
+    func setAllowAPIBilling(_ on: Bool) {
+        if on {
+            let a = NSAlert()
+            a.messageText = L("API キー（従量課金）での利用を許可しますか？")
+            a.informativeText = L("オンにすると、API キーでログインしている AI もエージェントとして動き、シェルの設定にある API キー（ANTHROPIC_API_KEY・OPENAI_API_KEY・GEMINI_API_KEY など）も CLI に渡します。使った分だけ、それぞれの API の料金がかかります。ふだんはオフのまま、サブスクリプション（Claude・ChatGPT・Google のアカウント）でログインして使ってください。")
+            a.alertStyle = .warning
+            a.addButton(withTitle: L("許可する"))
+            a.addButton(withTitle: L("キャンセル"))
+            NSApp.activate(ignoringOtherApps: true)
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        updateSettings { $0.allowAPIBilling = on }
+        BillingGuard.allowAPI = on
+        refreshEngineStatus()
+        accountsWindow?.refresh()
+        AppLog.write("allowAPIBilling: \(on)")
+    }
+
+    /// ログイン状態を裏で確かめ直す
+    func refreshEngineStatus(_ engines: [AgentEngine] = AgentEngine.allCases, relocate: Bool = false) {
+        EngineAuth.shared.refresh(engines, claudePath: settings.claudePath, cliPaths: cliPaths, relocate: relocate)
+    }
+
+    /// 「アカウントと AI」の画面（初めての起動のときにも出す）
+    private var accountsWindow: AccountsWindowController?
+
+    func showAccounts() {
+        if accountsWindow == nil {
+            let w = AccountsWindowController(manager: self)
+            accountsWindow = w
+            EngineAuth.shared.onChange = { [weak self] in
+                self?.accountsWindow?.refresh()
+                self?.onChange?()
+            }
+        }
+        refreshEngineStatus(relocate: true)
+        accountsWindow?.show()
+    }
+
+    /// その AI の公式のログインをターミナルで開く（Jellyfish はパスワード・トークン・API キーを扱わない）。
+    /// 入っていなければ入れ方の案内を開く
+    func openLogin(_ e: AgentEngine, folder: URL? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let cli: URL?
+            switch e {
+            case .claude: cli = ClaudeLocator.best(override: self.settings.claudePath)?.url
+            case .codex: cli = CLILocator.find(.codex, override: self.settings.codexPath, maxAge: 0)?.url
+            case .gemini: cli = CLILocator.find(.gemini, override: self.settings.geminiPath, maxAge: 0)?.url
+            }
+            DispatchQueue.main.async {
+                guard let cli else { NSWorkspace.shared.open(e.setupURL); return }
+                if !EngineLogin.open(e, cli: cli, folder: folder, allowAPI: self.settings.allowAPIBilling) { NSSound.beep() }
+                AppLog.write("login opened: \(e.rawValue)\(folder == nil ? "" : " (folder)")")
+            }
+        }
+    }
+
     func backend() -> AgentBackend? {
         guard let install = ClaudeLocator.best(override: settings.claudePath) else { return nil }
         let b = ClaudeCodeBackend(install: install, permissionMode: settings.permissionMode,
@@ -225,8 +351,10 @@ final class JellyManager {
 
     private func attachRuntime(to c: JellyController) {
         let rt = runtimes[c.record.id] ?? AgentRuntime(agentID: c.record.id, baseDir: store.dir,
-                                                       backendProvider: { [weak self] in self?.backend() })
+                                                       backendProvider: { [weak self] e in self?.backend(for: e) })
         runtimes[c.record.id] = rt
+        rt.preflight = { [weak self] b in self?.preflight(b) }
+        rt.defaultEngine = { [weak self] in self?.settings.engine ?? .claude }
         rt.onState = { [weak self, weak c] s in
             c?.setState(s)
             self?.onChange?()
@@ -549,6 +677,8 @@ final class JellyManager {
         r.origin = adjacentOrigin(near: parent)
         let c = addController(r)
         if let prt = runtimes[parent.record.id], let rt = runtimes[c.record.id] {
+            // 仲間は作った側と同じ AI で動く
+            rt.changeEngine(prt.engine)
             rt.changeFolder(prt.cwd)
             rt.model = prt.model
             rt.effort = prt.effort

@@ -36,39 +36,30 @@ enum AppInfo {
     /// 初回起動の案内（クラゲの使い方・エージェントに与える権限・Claude Code の有無）。
     /// 起動した直後（ユーザーがアプリを開いた直後）にだけ出す
     static func showWelcome(manager: JellyManager, newJellyKey: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let install = ClaudeLocator.best(override: manager.settings.claudePath)
-            DispatchQueue.main.async {
-                let a = NSAlert()
-                a.messageText = L("Jellyfish AI へようこそ")
-                a.icon = NSApp.applicationIconImage
-                let claude = install.map { L("✓ Claude Code %@ を使います", $0.versionString) }
-                    ?? L("✗ Claude Code（claude コマンド）が見つかりません。先にインストールしてログインしてください。")
-                a.informativeText = L("""
-                デスクトップのクラゲ 1 体が、Claude Code のエージェント 1 体です。
+        let a = NSAlert()
+        a.messageText = L("Jellyfish AI へようこそ")
+        a.icon = NSApp.applicationIconImage
+        a.informativeText = L("""
+        デスクトップのクラゲ 1 体が、AI のエージェント 1 体です。動かす AI は Claude（Claude Code）・ChatGPT（Codex）・Gemini から選べます。
 
-                ・クラゲをクリック：話しかける
-                ・%@：新しいクラゲ
-                ・ドラッグ：移動 ／ 長押し：消す
-                ・別のクラゲの近くで離す：つながってチームで分業
+        ・クラゲをクリック：話しかける
+        ・%@：新しいクラゲ
+        ・ドラッグ：移動 ／ 長押し：消す
+        ・別のクラゲの近くで離す：つながってチームで分業
 
-                エージェントは Claude Code の Auto モードで動き、確認なしでファイルの作成・編集・削除やコマンドの実行を行います（作業フォルダは既定でホーム。危ない操作は Claude Code の安全判定で止まります）。PC 操作は既定でオフです。いま与えている権限は、メニューバーのクラゲの「実行ポリシー」「PC 操作」で確認できます。
+        エージェントは確認なしでファイルの作成・編集やコマンドの実行を行います（作業フォルダは既定でホーム。危ない操作は各 AI の安全の仕組みが止めます）。PC 操作は既定でオフです。いま与えている権限は、メニューバーのクラゲの「実行ポリシー」「PC 操作」で確認できます。
 
-                %@
-                """, newJellyKey, claude)
-                a.addButton(withTitle: L("はじめる"))
-                if install == nil { a.addButton(withTitle: L("インストール方法を開く")) }
-                a.addButton(withTitle: L("使い方（README）"))
-                NSApp.activate(ignoringOtherApps: true)
-                let r = a.runModal()
-                let second = NSApplication.ModalResponse.alertSecondButtonReturn
-                let third = NSApplication.ModalResponse.alertThirdButtonReturn
-                if install == nil, r == second { NSWorkspace.shared.open(claudeSetupURL) }
-                else if (install == nil && r == third) || (install != nil && r == second) { NSWorkspace.shared.open(repoURL) }
-                // 案内のあとにクラゲが分かるよう軽くつつく
-                manager.controllers.first?.avatar.poke()
-            }
-        }
+        次の画面で、使う AI にログインしてください。ログインはそれぞれの公式の画面で行い、Jellyfish は API キーを扱わず、勝手に課金しません。
+        """, newJellyKey)
+        a.addButton(withTitle: L("AI にログインする"))
+        a.addButton(withTitle: L("使い方（README）"))
+        NSApp.activate(ignoringOtherApps: true)
+        let r = a.runModal()
+        if r == .alertSecondButtonReturn { NSWorkspace.shared.open(repoURL) }
+        // 初めての起動：Claude・ChatGPT・Gemini のログインの画面を出す
+        manager.showAccounts()
+        // 案内のあとにクラゲが分かるよう軽くつつく
+        manager.controllers.first?.avatar.poke()
     }
 }
 

@@ -61,7 +61,16 @@ final class AgentRuntime {
     private var pendingTools = 0
     private var cancelRequested = false
     private var gotResult = false
-    private let backendProvider: () -> AgentBackend?
+    /// クラゲごとのエンジン（nil = メニューバーの「使う AI」の既定）を受けて、そのバックエンドを返す
+    private let backendProvider: (AgentEngine?) -> AgentBackend?
+    /// このクラゲが使う AI（nil = 既定）。変えると新しい会話になる
+    private(set) var engine: AgentEngine?
+    /// 実行の前の確認（ログインしていない・API キーの従量課金など、使わない理由があれば返す）
+    var preflight: ((AgentBackend) -> String?)?
+    /// いまのターンの CLI が会話の ID を自分で決めるか（Codex）
+    private var adoptSession = false
+    /// いまのターンのエンジン
+    private(set) var runningEngine: AgentEngine?
 
     var isRunning: Bool { handle != nil }
     var processID: Int32? { handle?.processID }
@@ -70,7 +79,7 @@ final class AgentRuntime {
     /// （claude -p はターミナル向けなので、何も言わないと cat で中身を表示して終わることがある）
     static var desktopNote: String { L("# Jellyfish（Mac のデスクトップアプリ）から\nあなたは Mac のデスクトップに常駐するアプリ Jellyfish AI から呼ばれています。ユーザーがファイル・フォルダ・URL を「開いて」「表示して」「見せて」と頼んだときは、中身をチャットに書き写すのではなく、`open` コマンドで Mac の既定のアプリ（プレビュー・テキストエディット・Finder・ブラウザなど）で開いてください。開いたら「〇〇を〇〇で開きました」と短く伝えれば十分です（中身の説明や要約は頼まれたときだけ）。開くのはユーザーが頼んだものだけにしてください。") }
 
-    init(agentID: UUID, baseDir: URL, backendProvider: @escaping () -> AgentBackend?) {
+    init(agentID: UUID, baseDir: URL, backendProvider: @escaping (AgentEngine?) -> AgentBackend?) {
         self.agentID = agentID
         self.backendProvider = backendProvider
         dir = baseDir.appendingPathComponent("agents/\(agentID.uuidString)", isDirectory: true)
@@ -85,6 +94,7 @@ final class AgentRuntime {
         model = meta?.model
         effort = meta?.effort
         pcControl = meta?.pcControl ?? false
+        engine = meta?.engine.flatMap(AgentEngine.init(rawValue:))
         externalMCPSession = meta?.externalMCPSession
         turns = AgentRuntime.loadTurns(dir)
         // 前回アプリ終了時に実行中だったターンは中断扱い
@@ -104,12 +114,13 @@ final class AgentRuntime {
     func submit(_ prompt: String) -> Bool {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isRunning else { return false }
-        guard let backend = backendProvider() else {
-            lastError = L("claude コマンドが見つかりません（設定で claudePath を指定してください）")
-            turns.append(AgentTurn(prompt: text, startedAt: Date(), endedAt: Date(), state: .error, error: lastError))
-            saveTurns()
-            onState?(.error)
-            onUpdate?()
+        guard let backend = backendProvider(engine) else {
+            refuse(text, L("%@ が見つかりません。メニューバーのクラゲ › 🔑 アカウントと AI で、入っているか・ログインしているかを確かめてください", (engine ?? defaultEngine?() ?? .claude).cliTitle))
+            return false
+        }
+        // ログインしていない・API キー（従量課金）でログインしている、などのときは動かさない（勝手に課金しない）
+        if let why = preflight?(backend) {
+            refuse(text, why)
             return false
         }
         turns.append(AgentTurn(prompt: text, startedAt: Date(), state: .thinking))
@@ -123,9 +134,17 @@ final class AgentRuntime {
         onUpdate?()
 
         let resume = sessionStarted
+        adoptSession = backend.assignsSessionID
+        runningEngine = backend.engine
         var opts = AgentRunOptions(model: model, effort: effort)
-        // 「自動」：依頼ごとに合うモデルを選ぶ（クラゲの指定が無ければ設定の既定に従う）
-        if (model ?? backend.defaultModel) == ModelRouter.auto {
+        let claude = backend.engine == .claude
+        if !claude {
+            // Codex・Gemini：モデルは CLI の既定（自動は Claude だけ）。チーム・PC 操作・外部 MCP・追加の案内は渡さない
+            opts.model = nil
+            opts.effort = nil
+            autoChoice = nil
+        } else if (model ?? backend.defaultModel) == ModelRouter.auto {
+            // 「自動」：依頼ごとに合うモデルを選ぶ（クラゲの指定が無ければ設定の既定に従う）
             let attached = text.contains(AgentChatController.attachMarker) || text.contains(ScreenContext.marker)
             let typed = AgentChatController.typedPrompts([text]).first ?? text
             let c = ModelRouter.choose(typed, attachments: attached, fableUsedPercent: ClaudeAccount.shared.fableUsedPercent)
@@ -134,13 +153,13 @@ final class AgentRuntime {
         } else {
             autoChoice = nil
         }
-        if let t = teamConfig?() {
+        if claude, let t = teamConfig?() {
             opts.mcpConfig = t.mcpConfig
             opts.appendSystemPrompt = t.systemPrompt
             opts.allowedTools = t.allowedTools
             opts.env = t.env
         }
-        if let d = mcpPolicy?(text, cwd, externalMCPSession == sessionID) {
+        if claude, let d = mcpPolicy?(text, cwd, externalMCPSession == sessionID) {
             if d.load {
                 externalLoaded = d.servers.isEmpty ? ["claude.ai"] : d.servers
                 if externalMCPSession != sessionID { externalMCPSession = sessionID; saveMeta() }
@@ -151,13 +170,13 @@ final class AgentRuntime {
             }
         }
         // デスクトップのアプリとしての振る舞い（毎回同じ文なのでプロンプトキャッシュは崩れない）
-        opts.appendSystemPrompt = [AgentRuntime.desktopNote, opts.appendSystemPrompt].compactMap { $0 }.joined(separator: "\n\n")
+        if claude { opts.appendSystemPrompt = [AgentRuntime.desktopNote, opts.appendSystemPrompt].compactMap { $0 }.joined(separator: "\n\n") }
         do {
             handle = try backend.run(prompt: text, sessionID: sessionID, resume: resume, cwd: cwd, logDir: dir,
                                      options: opts,
                                      onEvent: { [weak self] e in self?.handle(e) },
                                      onExit: { [weak self] status, err in self?.exited(status: status, stderr: err) })
-            AppLog.write("agent \(agentID.uuidString.prefix(8)) run resume=\(resume) model=\(model ?? "-")\(autoChoice.map { "→\($0.model)" } ?? "") effort=\(effort ?? "-") external=\(opts.strictMCPConfig ? "off" : externalLoaded.joined(separator: ",")) cwd=\(cwd.path)")
+            AppLog.write("agent \(agentID.uuidString.prefix(8)) run engine=\(backend.engine.rawValue) resume=\(resume) model=\(model ?? "-")\(autoChoice.map { "→\($0.model)" } ?? "") effort=\(effort ?? "-") external=\(opts.strictMCPConfig ? "off" : externalLoaded.joined(separator: ",")) cwd=\(cwd.path)")
         } catch {
             finish(.error, error: L("起動に失敗しました: %@", error.localizedDescription))
         }
@@ -186,6 +205,13 @@ final class AgentRuntime {
         switch e {
         case .started(let session, let model, let mode):
             if let s = session, s == sessionID { sessionStarted = true; saveMeta() }
+            // Codex は会話の ID を自分で決めるので、受け取った ID（UUID の形のときだけ）を次の続きに使う
+            else if adoptSession, let s = session, UUID(uuidString: s) != nil {
+                sessionID = s
+                sessionStarted = true
+                cachedSessionFile = nil
+                saveMeta()
+            }
             self.activeModel = model
             self.permissionMode = mode
         case .thinking:
@@ -234,7 +260,8 @@ final class AgentRuntime {
         }
     }
 
-    private func finish(_ s: AgentState, error: String?) {
+    private func finish(_ s: AgentState, error rawError: String?) {
+        let error = rawError.map { AgentRuntime.friendlyError($0, engine: runningEngine) }
         handle = nil
         if !turns.isEmpty {
             let i = turns.count - 1
@@ -248,6 +275,14 @@ final class AgentRuntime {
         onState?(s)
         onUpdate?()
         if let t = turns.last { onTurnEnded?(t) }
+    }
+
+    /// CLI のエラーを、どうすればよいか分かる文にする
+    static func friendlyError(_ e: String, engine: AgentEngine?) -> String {
+        if engine == .gemini, e.contains("trusted directory") {
+            return L("Gemini がこのフォルダを信頼していないので動けません。チャットの「Gemini をこのフォルダで開く」から Gemini を開き、信頼してよいフォルダのときだけ信頼してください。")
+        }
+        return e
     }
 
     // MARK: - Claude Code のセッション記録
@@ -268,6 +303,38 @@ final class AgentRuntime {
         guard let info = ClaudeSessions.info(file: f, modified: m), info.title != "（無題のセッション）", info.title != L("（無題のセッション）") else { return nil }
         cachedTitle = (m, info.title)
         return info.title
+    }
+
+    /// 既定の AI（エンジン）。メニューバーの「使う AI」
+    var defaultEngine: (() -> AgentEngine)?
+
+    /// 実際に使う AI
+    var effectiveEngine: AgentEngine { engine ?? defaultEngine?() ?? .claude }
+
+    /// AI を変える（nil = 既定に従う）。会話は AI ごとに別なので、新しい会話になる。モデルの指定も外す
+    func changeEngine(_ e: AgentEngine?) {
+        guard !isRunning, e != engine else { return }
+        let before = effectiveEngine
+        engine = e
+        if effectiveEngine != before {
+            sessionID = UUID().uuidString.lowercased()
+            sessionStarted = false
+            cachedSessionFile = nil
+            cachedTitle = nil
+            model = nil
+            effort = nil
+        }
+        saveMeta()
+        onUpdate?()
+    }
+
+    /// 動かさない理由をターンとして残す
+    private func refuse(_ text: String, _ why: String) {
+        lastError = why
+        turns.append(AgentTurn(prompt: text, startedAt: Date(), endedAt: Date(), state: .error, error: why))
+        saveTurns()
+        onState?(.error)
+        onUpdate?()
     }
 
     /// 作業フォルダを変える。Claude Code のセッションはフォルダ（プロジェクト）ごとに保存されるので新しいセッションになる
@@ -301,6 +368,7 @@ final class AgentRuntime {
         var model: String?; var effort: String?
         var pcControl: Bool?
         var externalMCPSession: String?
+        var engine: String?
     }
 
     private static func loadMeta(_ dir: URL) -> Meta? {
@@ -310,7 +378,7 @@ final class AgentRuntime {
 
     private func saveMeta() {
         let m = Meta(sessionID: sessionID, sessionStarted: sessionStarted, cwd: cwd.path, model: model, effort: effort,
-                     pcControl: pcControl, externalMCPSession: externalMCPSession)
+                     pcControl: pcControl, externalMCPSession: externalMCPSession, engine: engine?.rawValue)
         if let d = try? JSONEncoder().encode(m) { try? d.write(to: dir.appendingPathComponent("meta.json"), options: .atomic) }
     }
 

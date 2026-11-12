@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  A macOS app that keeps Claude's pixel-art characters on the right edge of your desktop, each one running as an independent AI agent (Claude Code).<br>
+  A macOS app where AI agents live on your desktop, each one running as an independent AI agent (Claude Code).<br>
   Press ⌘L, type, and watch it think, work and finish.
 </p>
 
@@ -26,6 +26,7 @@
   &nbsp;·&nbsp; <a href="#how-to-launch">How to launch</a>
   &nbsp;·&nbsp; <a href="#getting-started">Getting started</a>
   &nbsp;·&nbsp; <a href="#what-it-can-do">What it can do</a>
+  &nbsp;·&nbsp; <a href="#ai-engines-and-accounts">AI engines</a>
   &nbsp;·&nbsp; <a href="#autonomous-organization-mode">Autonomous organization mode</a>
   &nbsp;·&nbsp; <a href="#language">Language</a>
 </p>
@@ -35,17 +36,19 @@
 </p>
 
 > [!NOTE]
-> This is an unofficial app made by an individual. It is not affiliated with Anthropic. Claude, Claude Code, and the Claude Code character belong to Anthropic.
+> This is an unofficial app made by an individual. It is not affiliated with Anthropic, OpenAI or Google. Claude, Claude Code and the Claude Code character belong to Anthropic; ChatGPT and Codex belong to OpenAI; Gemini belongs to Google.
 
 ## Download and install
 
 **Requirements**
 
 - macOS 14 or later. It's a universal build that runs on both Apple silicon and Intel (tested on macOS 26 on Apple silicon). Transcribing system audio requires macOS 26 or later
-- [Claude Code](https://code.claude.com/docs/en/setup), signed in. Jellyfish AI automatically picks the newest `claude` from your PATH, `~/.local/bin`, Homebrew, and the copy bundled with the VS Code / Cursor extension (the version and location in use are shown under “Execution policy” in the menu bar)
+- At least one of these AI CLIs ([AI engines and accounts](#ai-engines-and-accounts)). Claude Code supports the most features
+  - [Claude Code](https://code.claude.com/docs/en/setup) (Claude account). Jellyfish AI automatically picks the newest `claude` from your PATH, `~/.local/bin`, Homebrew, and the copy bundled with the VS Code / Cursor extension
+  - [Codex CLI](https://github.com/openai/codex) (ChatGPT account) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google account)
 
-1. **Install Claude Code and sign in**
-   Install it by following [Claude Code setup](https://code.claude.com/docs/en/setup), then run `claude` once in Terminal and sign in (`claude auth login` also works). If you use the Claude Code extension for VS Code / Cursor, the `claude` bundled with the extension works as is
+1. **Install the CLI of the AI you want to use**
+   Install Claude Code, Codex CLI or Gemini CLI by following its official guide. If you use the Claude Code extension for VS Code / Cursor, the `claude` bundled with the extension works as is. You can sign in from the “Accounts & AI” screen that appears the first time you launch the app (AIs you install later can be signed in from the menu bar jellyfish › 🔑 Accounts & AI)
 2. **Download**
    Download `JellyfishAI-<version>.dmg` from [the latest release](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) (there's also a `.zip` with the same contents)
 3. **Move it to the Applications folder**
@@ -56,9 +59,9 @@
 To check that the download isn't corrupted, compare the output of `shasum -a 256 JellyfishAI-<version>.dmg` with `SHA256SUMS.txt` from the same release.
 
 > [!IMPORTANT]
-> Agents create, edit and delete files and run commands **without asking** (Claude Code's Auto mode; dangerous operations are stopped by Claude Code's safety checks). The working folder is your home folder by default. For details, see [Permissions and safety](#permissions-and-safety) and [SECURITY.md](SECURITY.md).
+> Agents create, edit and delete files and run commands **without asking** (Claude Code's Auto mode and the like; each AI's own safety features stop dangerous operations). The working folder is your home folder by default. For details, see [Permissions and safety](#permissions-and-safety) and [SECURITY.md](SECURITY.md).
 >
-> Agents run on your Claude Code (Pro / Max plan or API key) and consume its usage. Claude Code uses tens of thousands of tokens just for the baseline of a single call, so running many jellyfish in parallel reaches your usage limits quickly. You can check how much you've used this week from the jellyfish in the menu bar.
+> Agents run on your AI accounts (Claude Pro / Max, ChatGPT, Google) and consume their usage. **Jellyfish doesn't handle API keys and never charges you on its own** (AIs signed in with an API key / pay-as-you-go aren't used unless you allow it). Claude Code alone uses tens of thousands of tokens per call for its baseline, so running many jellyfish in parallel reaches your usage limits quickly. You can check how much you've used this week from the menu bar jellyfish.
 
 ## How to launch
 
@@ -93,7 +96,7 @@ Click the jellyfish in the menu bar, and the top of the menu shows **your Claude
 - Bars and percentages for this week's usage: the **all models** and **Fable** limits, each with its reset date and time (orange at 75%, red at 90%)
 - When you open the menu, it re-reads them from Claude Code if at least a minute has passed since the last read (`claude auth status` and `claude -p /usage`; `/usage` is a built-in Claude Code command, so no model is called and no tokens are used). It never fetches them periodically in the background
 
-Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and the list of agents, plus settings for Appearance, Size, Screen awareness, 🧠 Model (default), Execution policy, PC control, Team, 🧬 Autonomous organization, External tools (MCP), Open at login, and 🌐 Language. “About Jellyfish AI” and “Check for updates…” are here too.
+Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and the list of agents, plus settings for Appearance, Size, Screen awareness, 🔑 Accounts & AI, 🧠 Model (default), Execution policy, PC control, Team, 🧬 Autonomous organization, External tools (MCP), Open at login, and 🌐 Language. “About Jellyfish AI” and “Check for updates…” are here too.
 
 ## What it can do
 
@@ -248,6 +251,31 @@ From menu bar jellyfish › **🌐 言語 · Language · 语言**, you can choos
 - Automatic follows macOS's “Preferred Languages” (English if it's none of Japanese, English, or Chinese)
 - Detecting words that point at the screen (“この画面”, “this screen”, “这个屏幕”, etc.), as well as reading request types and reactions for autonomous organization, works in all three languages
 
+## AI engines and accounts
+
+You can choose which AI runs your agents: **Claude (Claude Code), ChatGPT (Codex CLI) or Gemini (Gemini CLI)**. Each one runs the official CLI installed on this Mac, **signed in with your own account**.
+
+| AI | CLI | Account to sign in with | Rules when running without asking | Features |
+|---|---|---|---|---|
+| Claude | Claude Code | Claude (Pro, Max, etc.) | Auto mode (Claude Code's safety checks stop dangerous operations) | All |
+| ChatGPT | Codex CLI | ChatGPT (Plus, Pro, etc.) | Sandbox (can write only inside the working folder, no network) | Chat, work, continue |
+| Gemini | Gemini CLI | Google account | auto_edit (auto-approves only edits inside the working folder, doesn't run commands) | Chat, work, continue |
+
+- **The first time you launch the app**, the “Accounts & AI” screen appears so you can sign in to each AI. For AIs that aren't installed, “How to install…” shows the official install command (Jellyfish doesn't install anything for you)
+- **Later**, add accounts, sign in again with another account, or change the AI you use from the menu bar jellyfish › **🔑 Accounts & AI**. The sign-in status (✓ / ⚠️) is shown there too
+- **You can choose the AI per jellyfish**: “AI” at the top of the chat. Changing it starts a new conversation. Jellyfish that don't pick one follow “AI to use” in the menu. Teammates run on the same AI as the jellyfish that created them
+- Signing in opens each CLI's official sign-in (`claude auth login --claudeai`, `codex login`, Gemini CLI's “Sign in with Google”) in Terminal, and you sign in yourself in the browser. **Jellyfish never receives or stores passwords, tokens or API keys**
+- Team (division of labor), PC control, autonomous organization, external tools (MCP) and the “Automatic” model are Claude only. Codex and Gemini use their CLI's default model
+- Gemini checks whether it trusts a folder and won't run in an untrusted one. Open it with “Open Gemini in this folder” in the chat and trust the folder only if it's one you trust (Jellyfish never skips this check)
+
+### No surprise charges
+
+- Jellyfish **doesn't use API keys (pay-as-you-go)**. This applies to Claude too
+  - Even if your shell settings contain `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` and the like, they aren't passed to the agents' CLIs
+  - If a CLI is signed in with an API key or a cloud provider (Anthropic Console, Bedrock, Vertex AI, etc.), that jellyfish won't run, and you're asked to sign in again with a subscription account
+- Only if you really want to use an API key, turn on menu bar jellyfish › 🔑 Accounts & AI › “Allow use with API keys (pay-as-you-go)” (you'll be asked to confirm; each API bills you for what you use)
+- Purchasing extra usage beyond your subscription limits stays as set in each account (Jellyfish doesn't change it)
+
 ## Updates
 
 - Menu bar jellyfish › **Check for updates…** checks GitHub for a newer version (only when you choose it; it never connects automatically)
@@ -290,6 +318,7 @@ scripts/install.sh          # build, install to the Applications folder, and lau
 
 ## Permissions and safety
 
+- Jellyfish doesn't handle API keys and never charges you on its own. AIs signed in with an API key (pay-as-you-go) aren't used, and API key environment variables aren't passed ([No surprise charges](#no-surprise-charges))
 - Agents run in Claude Code's official **Auto Mode** (`--permission-mode auto`). They go ahead with file operations and commands without asking, and Claude Code's safety checks stop things like exfiltrating credentials, unintended sending to outside services, and irreversible operations. Options are passed only after checking at launch that they exist in `claude --help`
 - You can check the current scope of permissions and the location and version of the `claude` in use under “Execution policy” in the menu bar
 - It doesn't change macOS permission settings. Only when you use screen awareness, allow Jellyfish AI under “System Settings › Privacy & Security › Screen Recording”
@@ -326,7 +355,7 @@ Claude Code sessions (`~/.claude/projects/`) belong to Claude Code, so they rema
 - Design notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - You can control it from outside with the `jellyfish://` URL scheme
   - Anytime (Shortcuts.app, Raycast, etc.): `new`, `open?agent=2`, `toggle`, `show`, `hide`, `arrange`, `style?v=pixel|realistic`, `scale?v=1.25`
-  - Only when launched with the environment variable `JELLYFISH_AUTOMATION=1` and the passphrase from `automation.token` in the data folder is added as `token=…` (for automated tests and demo recording; `scripts/demo/recorder.swift` adds it automatically): `renumber`, `prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
+  - Only when launched with the environment variable `JELLYFISH_AUTOMATION=1` and the passphrase from `automation.token` in the data folder is added as `token=…` (for automated tests and demo recording; `scripts/demo/recorder.swift` adds it automatically): `renumber`, `prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `accounts`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
 - `.build/debug/JellyfishAI --pixel-sheet out.png` renders a sheet of the pixel-art frames, `--settle-test` verifies that it comes to rest when done, and `--account-menu out.png` renders the account and usage section of the menu (actually reading from claude)
 - Display text is written in Japanese in the source and wrapped in `L("…")`, with translations in `l10n/en.json` and `l10n/zh.json`. `scripts/l10n.py missing en` lists missing translations, `scripts/l10n.py gen` generates the Swift tables, and `scripts/l10n.py check` checks for missing translations and the number of `%@` (also checked in CI). Launch with the environment variable `JELLYFISH_LANGUAGE=en` to fix the language
 - The README GIFs can be re-recorded with `scripts/demo/record.sh` (it doesn't touch your everyday data; it actually runs Claude Code with empty demo data and records it. Requires Pillow and ffmpeg)

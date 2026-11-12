@@ -16,6 +16,19 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
 - `--permission-mode` は `claude --help` の choices にあるものだけを使います。`settings.json` に `bypassPermissions`（安全判定がすべて外れる）や未知の値が書いてあっても使わず、Auto モードで動かします（`settings.json` はエージェントからも書き換えられるため）。そのときは「実行ポリシー」に ⚠️ を出します
 - 今の設定はメニューバーのクラゲ › **実行ポリシー** で確認できます
 
+### 使う AI（Claude・ChatGPT・Gemini）と課金
+
+- エージェントは、この Mac に入っている公式の CLI（Claude Code・Codex CLI・Gemini CLI）を、それぞれのアカウントのログインのまま動かします。ログインは各 CLI の公式のログイン（`claude auth login --claudeai`・`codex login`・Gemini CLI の「Sign in with Google」）をターミナルで開き、本人がブラウザで行います。**Jellyfish はパスワード・トークン・API キーを受け取らず、保存もしません**。ログインの状態は CLI の状態表示（`claude auth status`・`codex login status`）と、Gemini は `~/.gemini/settings.json` の「どの方法でログインしたか」と資格情報のファイルがあるかだけで確かめます（資格情報の中身は読みません）
+- **勝手に課金しません（Claude も同じ）**
+  - エージェントの CLI に、API キー・クラウドの課金先を指す環境変数（`ANTHROPIC_API_KEY`・`ANTHROPIC_AUTH_TOKEN`・`OPENAI_API_KEY`・`CODEX_API_KEY`・`CODEX_ACCESS_TOKEN`・`GEMINI_API_KEY`・`GOOGLE_API_KEY`・`GOOGLE_GENAI_USE_VERTEXAI`・`GOOGLE_APPLICATION_CREDENTIALS`）を渡しません。ログインのターミナルでも外してから始めます
+  - CLI がサブスクリプション以外（Claude は `authMethod` が claude.ai 以外・`apiProvider` が firstParty 以外、Codex は「Logged in using ChatGPT」以外、Gemini は `oauth-personal` 以外）でログインしているときは、そのクラゲを動かしません
+  - メニューバーのクラゲ › 🔑 アカウントと AI ›「API キー（従量課金）での利用を許可」をオンにしたときだけ（確認が出ます）、どちらも許します
+- 確認なしで動かすときの決まりは AI ごとに次のとおりです。どれも「すべて許可」系のオプション（`bypassPermissions`・`--dangerously-bypass-approvals-and-sandbox`・`danger-full-access`・`--yolo`・`--skip-trust` など）は付けません
+  - Claude：Auto モード（`--permission-mode auto`）
+  - Codex：`codex exec --json` を `sandbox_mode="workspace-write"`（作業フォルダの中だけ書ける・ネットワークなし）・`approval_policy="never"`（権限の追加を求めない）で
+  - Gemini：`--approval-mode auto_edit`（作業フォルダの中の編集だけ自動で承認し、シェルのコマンドは実行しない）。フォルダの信頼の確認は飛ばさず、信頼していないフォルダでは動かしません
+- チーム・PC 操作・自律組織・外部ツール（MCP）は Claude だけで使えます（Codex・Gemini には Jellyfish の MCP ツールを渡しません）
+
 ### PC 操作（既定オフ）
 
 - チャットの「🖱 PC 操作」をオンにしたエージェントだけが、マウス・キーボード操作と画面の撮影を行えます。同時に操作できるのは 1 体で、操作中は画面の縁が光り、**Esc** かメニューバーの「PC 操作」で止まります

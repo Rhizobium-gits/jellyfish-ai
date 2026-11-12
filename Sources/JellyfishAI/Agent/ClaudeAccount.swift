@@ -117,7 +117,7 @@ final class ClaudeAccount {
         p.executableURL = url
         p.arguments = args
         p.currentDirectoryURL = AppPaths.dataDir
-        p.environment = ShellEnvironment.shared.environment()
+        p.environment = ShellEnvironment.shared.agentEnvironment()
         p.standardInput = FileHandle.nullDevice
         let out = Pipe()
         p.standardOutput = out

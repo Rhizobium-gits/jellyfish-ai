@@ -26,6 +26,7 @@
   &nbsp;·&nbsp; <a href="#起動のしかた">起動のしかた</a>
   &nbsp;·&nbsp; <a href="#はじめかた">はじめかた</a>
   &nbsp;·&nbsp; <a href="#できること">できること</a>
+  &nbsp;·&nbsp; <a href="#使う-ai-とアカウント">使う AI</a>
   &nbsp;·&nbsp; <a href="#自律組織モード">自律組織モード</a>
   &nbsp;·&nbsp; <a href="#言語">言語</a>
 </p>
@@ -35,17 +36,19 @@
 </p>
 
 > [!NOTE]
-> 個人が作った非公式のアプリです。Anthropic とは関係ありません。Claude・Claude Code および Claude Code のキャラクターは Anthropic のものです。
+> 個人が作った非公式のアプリです。Anthropic・OpenAI・Google とは関係ありません。Claude・Claude Code および Claude Code のキャラクターは Anthropic の、ChatGPT・Codex は OpenAI の、Gemini は Google のものです。
 
 ## ダウンロードとインストール
 
 **必要なもの**
 
 - macOS 14 以降。Apple シリコン / Intel の両方で動く universal 版です（動作確認は Apple シリコンの macOS 26）。システムの音の文字起こしは macOS 26 以降
-- ログイン済みの [Claude Code](https://code.claude.com/docs/en/setup)。PATH・`~/.local/bin`・Homebrew・VS Code / Cursor 拡張に同梱の `claude` から最新版を自動で選びます（使っている版と場所はメニューバーの「実行ポリシー」に出ます）
+- 次の AI の CLI のどれか 1 つ以上（[使う AI とアカウント](#使う-ai-とアカウント)）。いちばん多くの機能が使えるのは Claude Code です
+  - [Claude Code](https://code.claude.com/docs/en/setup)（Claude のアカウント）。PATH・`~/.local/bin`・Homebrew・VS Code / Cursor 拡張に同梱の `claude` から最新版を自動で選びます
+  - [Codex CLI](https://github.com/openai/codex)（ChatGPT のアカウント）・[Gemini CLI](https://github.com/google-gemini/gemini-cli)（Google アカウント）
 
-1. **Claude Code を入れてログインする**
-   [Claude Code のセットアップ](https://code.claude.com/docs/en/setup) に沿って入れ、ターミナルで `claude` を一度起動してログインします（`claude auth login` でも可）。VS Code / Cursor の Claude Code 拡張を使っているなら、拡張に同梱の `claude` をそのまま使えます
+1. **使う AI の CLI を入れる**
+   Claude Code・Codex CLI・Gemini CLI のどれかを、それぞれの公式の案内に沿って入れます。VS Code / Cursor の Claude Code 拡張を使っているなら、拡張に同梱の `claude` をそのまま使えます。ログインは、初めて起動したときに出る「アカウントと AI」の画面からできます（あとから入れた AI も、メニューバーのクラゲ › 🔑 アカウントと AI でログインできます）
 2. **ダウンロード**
    [Releases の最新版](https://github.com/Rhizobium-gits/jellyfish-ai/releases/latest) から `JellyfishAI-<版>.dmg` をダウンロードします（`.zip` もあります。中身は同じ）
 3. **アプリケーションフォルダに入れる**
@@ -56,9 +59,9 @@
 ダウンロードしたファイルが壊れていないかは、同じリリースの `SHA256SUMS.txt` と `shasum -a 256 JellyfishAI-<版>.dmg` の結果を見比べて確かめられます。
 
 > [!IMPORTANT]
-> エージェントは **確認なしで** ファイルの作成・編集・削除やコマンドの実行を行います（Claude Code の Auto モード。危ない操作は Claude Code の安全判定が止めます）。作業フォルダは既定でホームです。詳しくは [権限と安全](#権限と安全) と [SECURITY.md](SECURITY.md)。
+> エージェントは **確認なしで** ファイルの作成・編集・削除やコマンドの実行を行います（Claude Code の Auto モードなど。危ない操作はそれぞれの AI の安全の仕組みが止めます）。作業フォルダは既定でホームです。詳しくは [権限と安全](#権限と安全) と [SECURITY.md](SECURITY.md)。
 >
-> エージェントは あなたの Claude Code（Pro / Max プランや API キー）で動き、その使用量を消費します。Claude Code は 1 回の呼び出しの土台だけで数万トークンを使うので、たくさんのクラゲを並列に動かすと使用量の上限に早く届きます。今週どれだけ使ったかはメニューバーのクラゲで確かめられます。
+> エージェントは あなたの AI のアカウント（Claude の Pro / Max、ChatGPT、Google のアカウント）で動き、その使用量を消費します。**Jellyfish は API キーを扱わず、勝手に課金しません**（API キー・従量課金でログインしている AI は、許可しない限り使いません）。Claude Code は 1 回の呼び出しの土台だけで数万トークンを使うので、たくさんのクラゲを並列に動かすと使用量の上限に早く届きます。今週どれだけ使ったかはメニューバーのクラゲで確かめられます。
 
 ## 起動のしかた
 
@@ -93,7 +96,7 @@
 - 今週の使用量のバーとパーセンテージ：**全モデル** と **Fable** の枠、それぞれのリセット日時（75% でオレンジ、90% で赤）
 - メニューを開いたときに、前に読んでから 1 分以上たっていれば Claude Code から読み直します（`claude auth status` と `claude -p /usage`。`/usage` は Claude Code の組み込みコマンドなので、モデルは呼ばずトークンも使いません）。裏で定期的に取りに行くことはしません
 
-その下で、新しいクラゲ・全員を隠す / 表示・過去のセッション・エージェントの一覧と、見た目・大きさ・画面認識・🧠 モデル（既定）・実行ポリシー・PC 操作・チーム・🧬 自律組織・外部ツール（MCP）・ログイン時の自動起動・🌐 言語を設定できます。「Jellyfish AI について」「アップデートを確認…」もここにあります。
+その下で、新しいクラゲ・全員を隠す / 表示・過去のセッション・エージェントの一覧と、見た目・大きさ・画面認識・🔑 アカウントと AI・🧠 モデル（既定）・実行ポリシー・PC 操作・チーム・🧬 自律組織・外部ツール（MCP）・ログイン時の自動起動・🌐 言語を設定できます。「Jellyfish AI について」「アップデートを確認…」もここにあります。
 
 ## できること
 
@@ -248,6 +251,31 @@ flowchart LR
 - 自動は macOS の「優先する言語」に合わせます（日本語・英語・中国語のどれでもなければ英語）
 - 画面を指す言葉の判定（「この画面」「this screen」「这个屏幕」など）や、自律組織の依頼の種類・反応の読み取りは 3 つの言語に対応しています
 
+## 使う AI とアカウント
+
+エージェントを動かす AI は **Claude（Claude Code）・ChatGPT（Codex CLI）・Gemini（Gemini CLI）** から選べます。どれも、この Mac に入っている公式の CLI を、**あなたのアカウントのログインのまま** 動かします。
+
+| AI | CLI | ログインに使うアカウント | 確認なしで動かすときの決まり | 使える機能 |
+|---|---|---|---|---|
+| Claude | Claude Code | Claude（Pro / Max など） | Auto モード（危ない操作は Claude Code の安全判定が止める） | すべて |
+| ChatGPT | Codex CLI | ChatGPT（Plus / Pro など） | サンドボックス（作業フォルダの中だけ書ける・ネットワークなし） | 話す・作業する・続ける |
+| Gemini | Gemini CLI | Google アカウント | auto_edit（作業フォルダの中の編集だけ自動で承認・コマンドは実行しない） | 話す・作業する・続ける |
+
+- **初めて起動したとき** に「アカウントと AI」の画面が出て、それぞれの AI にログインできます。入っていない AI は「入れ方…」に公式のインストールのコマンドが出ます（Jellyfish はインストールを代わりに実行しません）
+- **あとから** アカウントを足したり、別のアカウントでログインし直したり、使う AI を変えたりするのは、メニューバーのクラゲ › **🔑 アカウントと AI** から。ログインの状態（✓・⚠️）もここに出ます
+- **使う AI はクラゲごと** にも選べます：チャットの上の段の「AI」。変えると新しい会話になります。選んでいないクラゲはメニューの「使う AI」に従います。仲間は作った側と同じ AI で動きます
+- ログインは、それぞれの CLI の公式のログイン（`claude auth login --claudeai`・`codex login`・Gemini CLI の「Sign in with Google」）をターミナルで開いて、ブラウザで本人が行います。**Jellyfish はパスワード・トークン・API キーを受け取らず、保存もしません**
+- チーム（分業）・PC 操作・自律組織・外部ツール（MCP）・モデルの「自動」は Claude だけです。Codex・Gemini のモデルは、それぞれの CLI の既定を使います
+- Gemini はフォルダの信頼を確かめます。信頼していないフォルダでは動かないので、チャットの「Gemini をこのフォルダで開く」から開き、信頼してよいフォルダのときだけ信頼してください（Jellyfish はこの確認を飛ばしません）
+
+### 勝手に課金しない
+
+- Jellyfish は **API キー（従量課金）での利用をしません**。これは Claude も同じです
+  - シェルの設定に `ANTHROPIC_API_KEY`・`OPENAI_API_KEY`・`CODEX_API_KEY`・`GEMINI_API_KEY`・`GOOGLE_API_KEY` などがあっても、エージェントの CLI には渡しません
+  - CLI が API キーやクラウド（Anthropic Console・Bedrock・Vertex AI など）でログインしているときは、そのクラゲを動かさず、サブスクリプションのアカウントでログインし直すよう案内します
+- どうしても API キーで使いたいときだけ、メニューバーのクラゲ › 🔑 アカウントと AI ›「API キー（従量課金）での利用を許可」をオンにします（確認が出ます。使った分だけ各 API の料金がかかります）
+- サブスクリプションの使用量の上限を超えたときの追加の購入などは、それぞれのアカウントの設定のままです（Jellyfish は変えません）
+
 ## アップデート
 
 - メニューバーのクラゲ › **アップデートを確認…** で、新しい版があるか GitHub に確かめます（選んだときだけ。自動では通信しません）
@@ -290,6 +318,7 @@ scripts/install.sh          # ビルドしてアプリケーションフォル�
 
 ## 権限と安全
 
+- Jellyfish は API キーを扱わず、勝手に課金しません。API キー（従量課金）でログインしている AI は使わず、API キーの環境変数も渡しません（[勝手に課金しない](#勝手に課金しない)）
 - エージェントは Claude Code 公式の **Auto Mode**（`--permission-mode auto`）で動きます。確認なしでファイル操作・コマンド実行を進め、認証情報の持ち出し・意図しない外部送信・取り返しのつかない操作などは Claude Code 側の安全判定が止めます。付けるオプションは起動時に `claude --help` で存在を確かめてから使います
 - 今の権限の範囲と使っている `claude` の場所・版はメニューバーの「実行ポリシー」で確認できます
 - macOS の権限設定は変更しません。画面認識を使うときだけ「システム設定 › プライバシーとセキュリティ › 画面収録」で Jellyfish AI を許可してください
@@ -326,7 +355,7 @@ Claude Code のセッション（`~/.claude/projects/`）は Claude Code のも�
 - 設計メモ：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - `jellyfish://` URL スキームで外から操作できます
   - いつでも（ショートカット.app・Raycast など）：`new`, `open?agent=2`, `toggle`, `show`, `hide`, `arrange`, `style?v=pixel|realistic`, `scale?v=1.25`
-  - 環境変数 `JELLYFISH_AUTOMATION=1` を付けて起動し、データフォルダの `automation.token` の合言葉を `token=…` で付けたときだけ（自動テスト・デモ録画用。`scripts/demo/recorder.swift` が自動で付ける）：`renumber`, `prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
+  - 環境変数 `JELLYFISH_AUTOMATION=1` を付けて起動し、データフォルダの `automation.token` の合言葉を `token=…` で付けたときだけ（自動テスト・デモ録画用。`scripts/demo/recorder.swift` が自動で付ける）：`renumber`, `prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `accounts`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
 - `.build/debug/JellyfishAI --pixel-sheet out.png` でドット絵のコマ一覧、`--settle-test` で完了時の静止を検証、`--account-menu out.png` でメニューのアカウント・使用量の欄を描き出す（実際に claude から読む）
 - 表示の文字はソースに日本語で書いて `L("…")` で包み、訳は `l10n/en.json`・`l10n/zh.json` に置きます。`scripts/l10n.py missing en` で訳の抜け、`scripts/l10n.py gen` で Swift の表を作り、`scripts/l10n.py check` で抜けと `%@` の数を確かめます（CI でも確かめる）。環境変数 `JELLYFISH_LANGUAGE=en` で言語を固定して起動できます
 - README の GIF は `scripts/demo/record.sh` で撮り直せます（普段のデータには触れず、空のデモ用データで実際に Claude Code を動かして録画。Pillow と ffmpeg が必要）

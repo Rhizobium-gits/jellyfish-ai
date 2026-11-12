@@ -9,6 +9,11 @@ final class ShellEnvironment {
     private var cached: [String: String]?
     private let lock = NSLock()
 
+    /// エージェント・CLI に渡す環境変数：課金につながる API キーなどを外したもの（BillingGuard。ユーザーがメニューで許可したときだけ残す）
+    func agentEnvironment() -> [String: String] {
+        BillingGuard.sanitized(environment(), allowAPI: BillingGuard.allowAPI)
+    }
+
     /// 起動直後にバックグラウンドで取得を始めておく
     func prefetch() {
         DispatchQueue.global(qos: .utility).async { _ = self.environment() }
@@ -209,7 +214,7 @@ enum ClaudeLocator {
         let p = Process()
         p.executableURL = url
         p.arguments = args
-        p.environment = ShellEnvironment.shared.environment()
+        p.environment = ShellEnvironment.shared.agentEnvironment()
         p.standardInput = FileHandle.nullDevice
         let out = Pipe()
         p.standardOutput = out

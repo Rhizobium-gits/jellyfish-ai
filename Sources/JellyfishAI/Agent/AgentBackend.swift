@@ -37,6 +37,10 @@ protocol AgentHandle: AnyObject {
 /// AI の実行基盤。Claude Code CLI 以外（Claude API / OpenAI API / ローカル LLM など）も
 /// このプロトコルを実装すれば同じクラゲで動かせる。
 protocol AgentBackend {
+    /// どの AI か
+    var engine: AgentEngine { get }
+    /// CLI が会話の ID を自分で決めるか（Codex）。true なら started の session を受け取って使う
+    var assignsSessionID: Bool { get }
     var displayName: String { get }
     /// クラゲごとの指定が無いときに使うモデル（設定の model。nil = Claude Code の既定、"auto" = 自動）
     var defaultModel: String? { get }

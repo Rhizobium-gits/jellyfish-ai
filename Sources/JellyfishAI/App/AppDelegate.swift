@@ -241,6 +241,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case "open":
             if let c = agent { manager.openChat(for: c, activate: automation) }
+        case "accounts":
+            // 自動化（合言葉つき）のときだけ：アカウントと AI の画面
+            manager.showAccounts()
         case "debug":
             for c in manager.controllers {
                 let r = c.record
