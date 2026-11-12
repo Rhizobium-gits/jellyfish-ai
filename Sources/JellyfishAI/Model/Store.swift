@@ -53,7 +53,6 @@ struct AppSettings: Codable {
     var allHidden: Bool = false
     /// 見た目（既定はドット絵の Claude キャラクター）
     var avatarStyle: AvatarStyle = .pixel
-    var nextAgentNumber: Int = 1
     /// チャットウィンドウの既定サイズ（最後にリサイズした大きさを覚える）
     /// 画面認識：自動判定 / 毎回 / しない、と撮る範囲
     var screenMode: ScreenMode = .auto
@@ -88,7 +87,6 @@ struct AppSettings: Codable {
         calmFPS = c.value(Int.self, .calmFPS, d.calmFPS)
         allHidden = c.value(Bool.self, .allHidden, d.allHidden)
         avatarStyle = c.value(AvatarStyle.self, .avatarStyle, d.avatarStyle)
-        nextAgentNumber = c.value(Int.self, .nextAgentNumber, d.nextAgentNumber)
         chatWidth = c.value(Double.self, .chatWidth, d.chatWidth)
         screenMode = c.value(ScreenMode.self, .screenMode, d.screenMode)
         screenTarget = c.value(ScreenTarget.self, .screenTarget, d.screenTarget)

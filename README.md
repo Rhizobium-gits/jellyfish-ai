@@ -39,7 +39,8 @@
 - **画面を見て作業**：「この画面」「表示されているエラー」「スクショ」のように画面をはっきり指すと、送信時の画面を撮って渡す（Jellyfish 自身のウィンドウは写さない。「一覧を表示して」のような普通の指示では撮らない。チャットで「毎回 / しない」にも切り替えられる）。画像は長辺 1568px までに縮めて送るので、1 枚あたり約 1,800 トークン（2560px のときの約 4 割）
 - **外部ツールは呼んだときだけ**：Claude Code に設定してある MCP サーバー（Figma・Blender など）と claude.ai のコネクタは、指示に名前が出てきたときだけ読み込む。普段は読み込まないぶん 1 回あたり約 4,800 トークン少なく、起動も速い
 - **エージェント同士で分業**：クラゲを別のクラゲに近づけると相手が光って「離すとつながる」と出て、離すと線でつながり同じチームになる。エージェントは仲間に作業を頼んだり、新しい仲間を作って分担させたりでき、依頼（依頼元の色）と結果（依頼先の色）が線の上を光って行き来する。⇧ ドラッグでチームごと移動、⌥ を押しながら離すか線の ✂︎ で切れる
-- **名前を付けられる**：右クリック「名前を変える…」かチャットの「名前」。エージェント同士はこの名前で呼び合う
+- **名前を付けられる**：右クリック「名前を変える…」かチャットの「名前」。エージェント同士はこの名前で呼び合う。名前のないクラゲは「Agent 番号」で、番号は空いている一番小さいものを使い回す（増え続けない。飛んでいたらメニューバーの「番号を 1 から振り直す」）
+- **ファイルやページを開く**：「デスクトップの〇〇の資料を開いて」と頼むと、探して Mac の既定のアプリ（プレビュー・Finder・ブラウザなど）で開く。「何て書いてある？」ならチャットで答える
 - **ファイルを渡す**：クラゲやチャットウィンドウにファイルをドロップすると添付になる（📎 ボタンでも可）
 - **Claude Code の記録に残る**：会話は Claude Code 自身のセッション（`~/.claude/projects`）に保存されるので、VS Code やターミナルからも続きを開ける。メニューバーの「過去のセッションを開く」で、VS Code・ターミナルで作ったセッションもクラゲとして呼び出せる。⌥ を押しながら選ぶとアーカイブ（一覧から外すだけで記録は消さない。「アーカイブ済み」から戻せる）
 
@@ -176,7 +177,7 @@ Claude Code のセッション（`~/.claude/projects/`）は Claude Code のも�
 - 設計メモ：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - `jellyfish://` URL スキームで外から操作できます
   - いつでも（ショートカット.app・Raycast など）：`new`, `open?agent=2`, `toggle`, `show`, `hide`, `arrange`, `style?v=pixel|realistic`, `scale?v=1.25`
-  - 環境変数 `JELLYFISH_AUTOMATION=1` を付けて起動したときだけ（自動テスト・デモ録画用）：`prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
+  - 環境変数 `JELLYFISH_AUTOMATION=1` を付けて起動したときだけ（自動テスト・デモ録画用）：`renumber`, `prompt?agent=2&text=…`, `type?agent=2&text=…`, `new?cwd=…`, `folder?agent=2&path=…`, `pc?agent=2&on=1`, `rename?agent=2&name=…`, `link?a=2&b=3`, `unlink?a=2&b=3`, `move?agent=2&dx=…`, `press?agent=2`, `state?agent=2&s=working`, `remove?agent=2`, `login?on=1`, `debug`
 - `.build/debug/JellyfishAI --pixel-sheet out.png` でドット絵のコマ一覧、`--settle-test` で完了時の静止を検証
 - README の GIF は `scripts/demo/record.sh` で撮り直せます（普段のデータには触れず、空のデモ用データで実際に Claude Code を動かして録画。Pillow と ffmpeg が必要）
 

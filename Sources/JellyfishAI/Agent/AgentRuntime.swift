@@ -64,6 +64,10 @@ final class AgentRuntime {
     var isRunning: Bool { handle != nil }
     var processID: Int32? { handle?.processID }
 
+    /// 「デスクトップの〇〇を開いて」で、中身をチャットに書き写すのではなく Mac のアプリで開くように
+    /// （claude -p はターミナル向けなので、何も言わないと cat で中身を表示して終わることがある）
+    static let desktopNote = "# Jellyfish（Mac のデスクトップアプリ）から\nあなたは Mac のデスクトップに常駐するアプリ Jellyfish AI から呼ばれています。ユーザーがファイル・フォルダ・URL を「開いて」「表示して」「見せて」と頼んだときは、中身をチャットに書き写すのではなく、`open` コマンドで Mac の既定のアプリ（プレビュー・テキストエディット・Finder・ブラウザなど）で開いてください。開いたら「〇〇を〇〇で開きました」と短く伝えれば十分です（中身の説明や要約は頼まれたときだけ）。開くのはユーザーが頼んだものだけにしてください。"
+
     init(agentID: UUID, baseDir: URL, backendProvider: @escaping () -> AgentBackend?) {
         self.agentID = agentID
         self.backendProvider = backendProvider
@@ -132,6 +136,8 @@ final class AgentRuntime {
                 if let n = d.note { opts.appendSystemPrompt = [opts.appendSystemPrompt, n].compactMap { $0 }.joined(separator: "\n\n") }
             }
         }
+        // デスクトップのアプリとしての振る舞い（毎回同じ文なのでプロンプトキャッシュは崩れない）
+        opts.appendSystemPrompt = [AgentRuntime.desktopNote, opts.appendSystemPrompt].compactMap { $0 }.joined(separator: "\n\n")
         do {
             handle = try backend.run(prompt: text, sessionID: sessionID, resume: resume, cwd: cwd, logDir: dir,
                                      options: opts,
@@ -312,8 +318,9 @@ final class AgentRuntime {
     /// 会話は Claude Code のセッションに残り（「過去のセッションを開く」で戻せる）、文字起こしはユーザーの資料なので残す
     func deleteScratchFiles() {
         let fm = FileManager.default
-        for name in ["events.jsonl", "events.1.jsonl", "attachments", "screens", "open-in-claude.command"] {
-            try? fm.removeItem(at: dir.appendingPathComponent(name))
-        }
+        for name in AgentRuntime.scratchNames { try? fm.removeItem(at: dir.appendingPathComponent(name)) }
     }
+
+    /// クラゲを消したときに消すもの（生イベント・画面の画像・ターミナルで開く用のスクリプト）
+    static let scratchNames = ["events.jsonl", "events.1.jsonl", "attachments", "screens", "open-in-claude.command"]
 }

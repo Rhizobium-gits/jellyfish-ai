@@ -147,6 +147,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             mi.submenu = sub
             menu.addItem(mi)
         }
+        // 番号が飛んでいるときだけ（新しいクラゲは空いている一番小さい番号になるので、ふつうは詰まっている）
+        if !manager.numbersAreCompact {
+            menu.addItem(ClosureMenuItem("番号を 1 から振り直す") { [weak self] in self?.manager.renumber() })
+        }
 
         menu.addItem(.separator())
         let style = NSMenuItem(title: "見た目", action: nil, keyEquivalent: "")

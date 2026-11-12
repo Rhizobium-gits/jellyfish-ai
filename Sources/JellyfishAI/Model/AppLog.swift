@@ -54,4 +54,25 @@ enum DataJanitor {
         }
         if removed > 0 { AppLog.write("cleanup: removed \(removed) old screen images") }
     }
+
+    /// もういないクラゲ（1.0.0 より前に消したものなど）のフォルダから、生イベントと画面の画像を消す。
+    /// 履歴（history.json）・設定（meta.json）・文字起こしは残す。直近 minAge 秒に触ったフォルダは作りかけかもしれないので触らない
+    static func cleanUpRemovedAgents(dataDir: URL, live: Set<UUID>, minAge: TimeInterval = 600) {
+        let fm = FileManager.default
+        let agents = dataDir.appendingPathComponent("agents", isDirectory: true)
+        guard let dirs = try? fm.contentsOfDirectory(at: agents, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        var cleaned = 0
+        for d in dirs {
+            guard let id = UUID(uuidString: d.lastPathComponent), !live.contains(id) else { continue }
+            let m = (try? d.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            if Date().timeIntervalSince(m) < minAge { continue }
+            var any = false
+            for name in AgentRuntime.scratchNames {
+                let u = d.appendingPathComponent(name)
+                if fm.fileExists(atPath: u.path), (try? fm.removeItem(at: u)) != nil { any = true }
+            }
+            if any { cleaned += 1 }
+        }
+        if cleaned > 0 { AppLog.write("cleanup: removed raw events/images of \(cleaned) deleted agents") }
+    }
 }

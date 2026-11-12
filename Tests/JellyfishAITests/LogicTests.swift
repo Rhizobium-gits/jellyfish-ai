@@ -176,3 +176,69 @@ import Testing
         #expect(ClaudeSessions.messages(in: f).map(\.text) == ["別の会話"])
     }
 }
+
+@Suite struct NumberingTests {
+    @Test func reusesTheSmallestFreeNumber() {
+        #expect(JellyManager.lowestFree([], from: 1) == 1)
+        #expect(JellyManager.lowestFree([1, 2, 3], from: 1) == 4)
+        #expect(JellyManager.lowestFree([1, 3, 21], from: 1) == 2)
+        #expect(JellyManager.lowestFree([21], from: 1) == 1)
+        #expect(JellyManager.lowestFree([0, 1], from: 0) == 2)
+    }
+
+    @Test func oldSettingsWithCounterStillLoad() throws {
+        let s = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"nextAgentNumber": 22, "maxFPS": 30}"#.utf8))
+        #expect(s.maxFPS == 30)
+    }
+}
+
+@Suite struct RenumberTests {
+    @Test func compactsInCurrentOrder() {
+        #expect(JellyManager.compactNumbers([21]) == [21: 1])
+        #expect(JellyManager.compactNumbers([3, 1, 7]) == [3: 2, 7: 3])
+        #expect(JellyManager.compactNumbers([1, 2, 3]).isEmpty)
+        #expect(JellyManager.compactNumbers([]).isEmpty)
+    }
+}
+
+@Suite struct JanitorTests {
+    @Test func removesRawLogsOfDeletedAgentsOnly() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("jf-janitor-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let live = UUID(), gone = UUID()
+        func make(_ id: UUID, _ rel: String) throws {
+            let u = root.appendingPathComponent("agents/\(id.uuidString)/\(rel)")
+            try fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: u)
+        }
+        for id in [live, gone] {
+            try make(id, "events.jsonl")
+            try make(id, "history.json")
+            try make(id, "attachments/screen-1.png")
+            try make(id, "transcripts/transcript-1.txt")
+        }
+        DataJanitor.cleanUpRemovedAgents(dataDir: root, live: [live], minAge: 0)
+        func exists(_ id: UUID, _ rel: String) -> Bool { fm.fileExists(atPath: root.appendingPathComponent("agents/\(id.uuidString)/\(rel)").path) }
+        // 消したクラゲ：生イベントと画像だけ消え、履歴と文字起こしは残る
+        #expect(!exists(gone, "events.jsonl"))
+        #expect(!exists(gone, "attachments"))
+        #expect(exists(gone, "history.json"))
+        #expect(exists(gone, "transcripts/transcript-1.txt"))
+        // いるクラゲ：何も消えない
+        #expect(exists(live, "events.jsonl"))
+        #expect(exists(live, "attachments/screen-1.png"))
+    }
+
+    @Test func leavesRecentlyTouchedFoldersAlone() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("jf-janitor-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let id = UUID()
+        let u = root.appendingPathComponent("agents/\(id.uuidString)/events.jsonl")
+        try fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: u)
+        DataJanitor.cleanUpRemovedAgents(dataDir: root, live: [])
+        #expect(fm.fileExists(atPath: u.path))
+    }
+}

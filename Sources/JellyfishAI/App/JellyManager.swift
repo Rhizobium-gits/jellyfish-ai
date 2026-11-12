@@ -58,14 +58,43 @@ final class JellyManager {
     }
 
     private func makeRecord() -> JellyRecord {
-        let used = Set(controllers.map { $0.record.colorIndex })
-        var ci = 0
-        while used.contains(ci) { ci += 1 }
-        let n = settings.nextAgentNumber
-        settings.nextAgentNumber += 1
-        store.save(settings)
+        let ci = JellyManager.lowestFree(Set(controllers.map { $0.record.colorIndex }), from: 0)
+        // 番号も色と同じく、今いるクラゲで空いている一番小さいものを使う（消した番号は使い回すので増え続けない）
+        let n = JellyManager.lowestFree(Set(controllers.map { $0.record.number }), from: 1)
         return JellyRecord(id: UUID(), number: n, colorIndex: ci, origin: nil,
                            hidden: false, state: .idle, createdAt: Date())
+    }
+
+    static func lowestFree(_ used: Set<Int>, from start: Int) -> Int {
+        var n = start
+        while used.contains(n) { n += 1 }
+        return n
+    }
+
+    /// 番号を 1 から詰め直すときの対応（今の番号の小さい順に 1, 2, 3…）。変わらないものは含めない
+    static func compactNumbers(_ numbers: [Int]) -> [Int: Int] {
+        var map: [Int: Int] = [:]
+        for (i, n) in numbers.sorted().enumerated() where n != i + 1 { map[n] = i + 1 }
+        return map
+    }
+
+    /// 番号が 1, 2, 3… と詰まっているか（メニューの「番号を 1 から振り直す」を出すかどうか）
+    var numbersAreCompact: Bool { JellyManager.compactNumbers(controllers.map(\.record.number)).isEmpty }
+
+    /// 番号を 1 から振り直す（今の番号の小さい順）。名前を付けたクラゲは表示名が変わらない
+    func renumber() {
+        let map = JellyManager.compactNumbers(controllers.map(\.record.number))
+        guard !map.isEmpty else { return }
+        for c in controllers {
+            guard let n = map[c.record.number] else { continue }
+            c.update { $0.number = n }
+            c.panel.title = c.record.title
+            chats[c.record.id]?.refresh()
+        }
+        team?.refresh()
+        save()
+        onChange?()
+        AppLog.write("renumber: \(map.count) agents")
     }
 
     private func addController(_ r: JellyRecord) -> JellyController {

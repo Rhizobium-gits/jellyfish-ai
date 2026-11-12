@@ -34,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shortcuts = Shortcuts(manager: manager)
         statusBar = StatusBarController(manager: manager, shortcuts: shortcuts)
         manager.start()
+        let live = Set(manager.controllers.map(\.record.id))
+        DispatchQueue.global(qos: .utility).async { DataJanitor.cleanUpRemovedAgents(dataDir: AppPaths.dataDir, live: live) }
         manager.prefetchBackend()
         shortcuts.registerAll()
 
@@ -116,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   jellyfish://move?agent=2&dx=-120&dy=40[&mods=shift|option&t=0.8]  ドラッグして置く（デモ録画用）
     ///   jellyfish://toggle | show | hide      全体の表示切替
     ///   jellyfish://arrange                   右端に並べ直す
+    ///   jellyfish://renumber                  番号を 1 から振り直す
     ///   jellyfish://state?agent=2&s=working   状態を設定（Phase 1 ではプレビュー用）
     ///   jellyfish://remove?agent=2            削除
     ///   jellyfish://scale?v=1.25              大きさ
@@ -182,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "show": manager.setAllHidden(false)
         case "hide": manager.setAllHidden(true)
         case "arrange": manager.arrangeAll()
+        case "renumber": manager.renumber()
         case "state":
             if let c = agent, let s = param("s").flatMap(AgentState.init(rawValue:)) { c.setState(s) }
         case "remove":
