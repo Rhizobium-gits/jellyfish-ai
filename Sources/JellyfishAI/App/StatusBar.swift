@@ -17,6 +17,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
         item.menu = menu
         startAnimation()
+        ClaudeAccount.shared.onChange = { [weak self] in self?.accountChanged() }
+    }
+
+    // MARK: アカウントと使用量（メニューを開いたときに読み、読み終わったら開いたままのメニューを差し替える）
+
+    private var menuOpen = false
+
+    func menuWillOpen(_ menu: NSMenu) { menuOpen = true }
+    func menuDidClose(_ menu: NSMenu) { menuOpen = false }
+
+    private func accountChanged() {
+        guard menuOpen else { return }
+        for it in menu.items.reversed() where AccountMenu.tags.contains(it.tag) { menu.removeItem(it) }
+        for (i, it) in AccountMenu.items(ClaudeAccount.shared.snapshot, loading: ClaudeAccount.shared.loading).enumerated() {
+            menu.insertItem(it, at: i)
+        }
     }
 
     // MARK: アイコンのアニメーション（待機 = ゆっくり上下とまばたき、考え中 = 「…」、作業中 = 歩く）
@@ -56,6 +72,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let s = manager.settings
+
+        ClaudeAccount.shared.refreshIfStale(claudeOverride: s.claudePath)
+        AccountMenu.items(ClaudeAccount.shared.snapshot, loading: ClaudeAccount.shared.loading).forEach { menu.addItem($0) }
 
         let newTitle = "新しいクラゲ"
         let newItem = ClosureMenuItem(newTitle) { [weak self] in self?.manager.spawn() }

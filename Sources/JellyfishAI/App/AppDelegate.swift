@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shortcuts: Shortcuts!
     private var statusBar: StatusBarController!
     private var pendingURLs: [URL] = []
+    private var termSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 二重起動の防止（2つ目は即終了。URL は LaunchServices が既存側へ渡す）
@@ -23,6 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
+
+        // kill（SIGTERM）で終えられたときも、普通の終了と同じく保存してエージェントを止める（scripts/install.sh の入れ替えなど）
+        signal(SIGTERM, SIG_IGN)
+        let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        term.setEventHandler { NSApp.terminate(nil) }
+        term.resume()
+        termSource = term
 
         ShellEnvironment.shared.prefetch()
         DispatchQueue.global(qos: .utility).async { DataJanitor.cleanUp(dataDir: AppPaths.dataDir) }
@@ -104,6 +112,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         manager?.shutdown()
+    }
+
+    /// 動いている最中に、アプリのアイコン（アプリケーションフォルダ・Spotlight・Dock・Launchpad）からもう一度開いたとき。
+    /// 隠していたクラゲを出す。1 体もいなければ新しいクラゲを出して入力欄を開く
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard let manager else { return false }
+        if manager.settings.allHidden {
+            manager.setAllHidden(false)
+        } else if manager.controllers.isEmpty {
+            _ = manager.spawn()
+        }
+        return false
     }
 
     /// jellyfish:// URL スキーム（ショートカット.app・Raycast 等からの操作と、自動テスト・デモ録画用）

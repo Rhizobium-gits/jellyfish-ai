@@ -77,6 +77,10 @@ struct ClaudeInstall {
     var supportsAllowedTools = false
     /// `--strict-mcp-config`（--mcp-config 以外の MCP サーバーを読み込まない）があるか
     var supportsStrictMCPConfig = false
+    /// アカウントと使用量の表示に使う `auth` コマンド（`claude auth status --json`）と
+    /// `--no-session-persistence`（/usage を読むだけの呼び出しをセッションに残さない）があるか
+    var supportsAuthCommand = false
+    var supportsNoSessionPersistence = false
 }
 
 /// claude 実行ファイルを探す。候補（PATH・標準インストール先・VS Code / Cursor 拡張に同梱）すべての
@@ -179,7 +183,9 @@ enum ClaudeLocator {
                              supportsMCPConfig: help.contains("--mcp-config"),
                              supportsAppendSystemPrompt: help.contains("--append-system-prompt"),
                              supportsAllowedTools: help.contains("--allowedTools"),
-                             supportsStrictMCPConfig: help.contains("--strict-mcp-config"))
+                             supportsStrictMCPConfig: help.contains("--strict-mcp-config"),
+                             supportsAuthCommand: help.range(of: #"(?m)^\s+auth\s"#, options: .regularExpression) != nil,
+                             supportsNoSessionPersistence: help.contains("--no-session-persistence"))
     }
 
     private static func run(_ url: URL, _ args: [String], timeout: Double) -> String? {

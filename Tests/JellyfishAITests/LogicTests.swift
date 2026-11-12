@@ -338,3 +338,53 @@ import Testing
         #expect(!called)
     }
 }
+
+@Suite struct AccountTests {
+    let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+    func date(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int) -> Date {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = tokyo
+        return c.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
+    }
+
+    @Test func readsWeeklyLimitsFromUsage() {
+        let text = """
+        You are currently using your subscription to power your Claude Code usage
+
+        Current week (all models): 57% used · resets Nov 13 at 2:59am (Asia/Tokyo)
+        Current week (Fable): 76% used · resets Nov 13 at 2:59am (Asia/Tokyo)
+
+        What's contributing to your usage?
+          98%  Give "general-purpose" subagents a cheaper model
+        """
+        let limits = ClaudeAccount.parseUsage(text, now: date(2026, 11, 12, 13, 30))
+        #expect(limits.map(\.label) == ["今週（全モデル）", "今週（Fable）"])
+        #expect(limits.map(\.percent) == [57, 76])
+        #expect(limits.allSatisfy { $0.resetsAt == date(2026, 11, 13, 2, 59) })
+    }
+
+    @Test func resetTimes() {
+        let now = date(2026, 11, 12, 16, 0)
+        #expect(ClaudeAccount.parseReset("3pm (Asia/Tokyo)", now: now) == date(2026, 11, 13, 15, 0))   // もう過ぎたので明日
+        #expect(ClaudeAccount.parseReset("11:30pm (Asia/Tokyo)", now: now) == date(2026, 11, 12, 23, 30))
+        #expect(ClaudeAccount.parseReset("Nov 13 at 12am (Asia/Tokyo)", now: now) == date(2026, 11, 13, 0, 0))
+        #expect(ClaudeAccount.parseReset("Jan 2 at 12pm (Asia/Tokyo)", now: date(2026, 12, 30, 9, 0)) == date(2027, 1, 2, 12, 0))
+        #expect(ClaudeAccount.parseReset("next Tuesday", now: now) == nil)
+        #expect(ClaudeAccount.parseReset("3pm (Not/AZone)", now: now) == nil)
+    }
+
+    @Test func unreadableResetKeepsText() {
+        let l = ClaudeAccount.parseUsage("Current session: 12% used · resets soon")
+        #expect(l == [ClaudeAccount.Limit(label: "今のセッション", percent: 12, resetsAt: nil, resetsText: "soon")])
+    }
+
+    @Test func accountAndPlan() {
+        let json = #"{"loggedIn": true, "authMethod": "claude.ai", "email": "someone@example.com", "subscriptionType": "max", "planTier": "max_20x"}"#
+        let a = ClaudeAccount.parseAccount(Data(json.utf8))
+        #expect(a == ClaudeAccount.Account(loggedIn: true, email: "someone@example.com", plan: "Max 20x"))
+        #expect(ClaudeAccount.parseAccount(Data(#"{"loggedIn": false}"#.utf8))?.loggedIn == false)
+        #expect(ClaudeAccount.parseAccount(Data("not json".utf8)) == nil)
+        #expect(ClaudeAccount.planLabel(subscription: "pro", tier: nil) == "Pro")
+        #expect(ClaudeAccount.planLabel(subscription: nil, tier: "max_5x") == nil)
+    }
+}

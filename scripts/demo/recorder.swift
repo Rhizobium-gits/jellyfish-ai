@@ -32,6 +32,7 @@ struct Timeline: Decodable {
 }
 
 let args = CommandLine.arguments
+let demoApp = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("dist/JellyfishAI.app")
 guard args.count >= 3 else { print("usage: recorder <timeline.json> <outdir>"); exit(2) }
 let timeline = try! JSONDecoder().decode(Timeline.self, from: Data(contentsOf: URL(fileURLWithPath: args[1])))
 let outDir = URL(fileURLWithPath: args[2], isDirectory: true)
@@ -190,11 +191,12 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 }
             }
             if let u = step.url, let url = URL(string: u) {
-                // 作業中のアプリからフォーカスを奪わないよう、前面化せずに URL を渡す
+                // 作業中のアプリからフォーカスを奪わないよう、前面化せずに URL を渡す。
+                // アプリケーションフォルダにも Jellyfish AI があるので、録画用に起動した dist/ の方へ明示して渡す
                 await MainActor.run {
                     let cfg = NSWorkspace.OpenConfiguration()
                     cfg.activates = false
-                    NSWorkspace.shared.open(url, configuration: cfg) { _, _ in }
+                    NSWorkspace.shared.open([url], withApplicationAt: demoApp, configuration: cfg) { _, _ in }
                 }
             }
             if let m = step.mark { await MainActor.run { log(m) } }

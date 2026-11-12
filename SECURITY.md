@@ -26,6 +26,7 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
 
 - Jellyfish AI 自身が行う通信は、メニューの「アップデートを確認…」を選んだときに GitHub の公開 API（最新リリースの番号）を 1 回読むことだけです。自動の確認・利用状況の送信・解析は行いません
 - エージェントの指示・添付（画面・ファイル・文字起こし）は、Claude Code を通じて Anthropic に送られます。どこへ何が送られるかは Claude Code の設定と規約に従います
+- メニューバーのメニューを開くと、いちばん上のアカウントと使用量の欄のために `claude auth status --json`（メール・プラン）と `claude -p --output-format json -- /usage`（今週の使用量）を実行します。前に読んでから 1 分以内なら実行しません。`/usage` は Claude Code の組み込みコマンドなのでモデルは呼ばれず、トークンも使いません（使用量は Claude Code が Anthropic から取得します）。作業フォルダはデータフォルダで、セッションは残しません（`--no-session-persistence`）。メールはメニューに出すだけで、ログには書きません
 - システムの音の文字起こしは macOS の SpeechAnalyzer で端末内で処理します
 
 ### 外からの操作

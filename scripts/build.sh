@@ -44,11 +44,13 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 
-# アイコンはクラゲのレンダラ自身で描く
+# アイコン：Resources/AppIcon.png（正方形の絵）を macOS のアイコンの角丸の枠に収める。無ければクラゲのドット絵を描く
 TMP="$(mktemp -d)"
 ICONSET="$TMP/AppIcon.iconset"
 mkdir -p "$ICONSET"
-"$NATIVE" --icon "$TMP/icon_1024.png"
+ICON_ARGS=()
+[[ -f "$ROOT/Resources/AppIcon.png" ]] && ICON_ARGS=(--icon-source "$ROOT/Resources/AppIcon.png")
+"$NATIVE" --icon "$TMP/icon_1024.png" "${ICON_ARGS[@]+"${ICON_ARGS[@]}"}"
 for s in 16 32 128 256 512; do
   sips -z $s $s "$TMP/icon_1024.png" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
   d=$((s * 2))

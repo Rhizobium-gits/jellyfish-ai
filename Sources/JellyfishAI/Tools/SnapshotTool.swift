@@ -7,12 +7,13 @@ import UniformTypeIdentifiers
 /// ウィンドウを出さずにクラゲを PNG に描き出す開発用ツール。
 ///   --sheet out.png [--bg dark|light]        色 × 状態 の一覧
 ///   --strip out.png [--state s] [--color i] [--count n] [--interval sec] [--drag]
-///   --icon out.png                           アプリアイコン (1024px)
+///   --icon out.png [--icon-source art.png]   アプリアイコン (1024px)。art を角丸の枠に収める（無ければクラゲのドット絵を描く）
 ///   --settle-test                            完了/キャンセルで本当に静止するかを検証
+///   --account-menu out.png                   メニューのアカウントと使用量の欄（実際に claude から読む。明暗 2 つ並べる）
 enum SnapshotTool {
     static func handles(_ args: [String]) -> Bool {
         args.contains("--sheet") || args.contains("--strip") || args.contains("--icon") || args.contains("--settle-test") || args.contains("--status-frames")
-            || args.contains("--pixel-sheet")
+            || args.contains("--pixel-sheet") || args.contains("--account-menu")
     }
 
     static func run(_ args: [String]) -> Int32 {
@@ -32,8 +33,9 @@ enum SnapshotTool {
                          dark: value("--bg") != "light",
                          scale: Double(value("--scale") ?? "2") ?? 2)
         }
-        if let out = value("--icon") { return icon(out) }
+        if let out = value("--icon") { return icon(out, source: value("--icon-source")) }
         if let out = value("--status-frames") { return statusFrames(out) }
+        if let out = value("--account-menu") { return accountMenu(out) }
         if args.contains("--settle-test") { return settleTest() }
         return 1
     }
@@ -191,7 +193,8 @@ enum SnapshotTool {
 
     // MARK: - icon
 
-    static func icon(_ out: String) -> Int32 {
+    /// macOS のアイコンの枠（1024 の中に 824 の角丸）。この形なら macOS 26 でも灰色の枠に入れられず、縁の光と影はシステムが付ける
+    static func icon(_ out: String, source: String? = nil) -> Int32 {
         let S = 1024
         let ctx = makeContext(S, S)
         let inset: CGFloat = 100
@@ -200,6 +203,20 @@ enum SnapshotTool {
         ctx.saveGState()
         ctx.addPath(path)
         ctx.clip()
+        if let source {
+            guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: source) as CFURL, nil),
+                  let art = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+                FileHandle.standardError.write("cannot read icon source: \(source)\n".data(using: .utf8)!)
+                return 1
+            }
+            // 枠いっぱいに（縦横比を保って短い辺に合わせ、はみ出た分は切る）
+            let k = max(rect.width / CGFloat(art.width), rect.height / CGFloat(art.height))
+            let w = CGFloat(art.width) * k, h = CGFloat(art.height) * k
+            ctx.interpolationQuality = .high
+            ctx.draw(art, in: CGRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h))
+            ctx.restoreGState()
+            return write(ctx.makeImage()!, out)
+        }
         let g = CGGradient(colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                            colorComponents: [0.05, 0.13, 0.24, 1, 0.01, 0.03, 0.08, 1], locations: [0, 1], count: 2)!
         ctx.drawRadialGradient(g, startCenter: CGPoint(x: 512, y: 640), startRadius: 0,
@@ -213,6 +230,45 @@ enum SnapshotTool {
         ctx.setShadow(offset: .zero, blur: 70, color: CGColor(srgbRed: 0.85, green: 0.47, blue: 0.34, alpha: 0.6))
         ctx.draw(img, in: CGRect(x: (CGFloat(S) - w) / 2, y: (CGFloat(S) - h) / 2 - P * 0.6, width: w, height: h))
         ctx.restoreGState()
+        return write(ctx.makeImage()!, out)
+    }
+
+    // MARK: - account menu
+
+    static func accountMenu(_ out: String) -> Int32 {
+        let (snap, _) = ClaudeAccount.fetch(override: nil, skipUsageFor: nil)
+        print("limits: \(snap.limits.map { "\($0.label) \($0.percent)%" }.joined(separator: ", "))  note: \(snap.note ?? "-")  plan: \(snap.account?.plan ?? "-")")
+        let w = AccountMenu.width, pad: CGFloat = 8, gap: CGFloat = 20
+        var panels: [NSBitmapImageRep] = []
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            // 実際のメニューと同じく、縦に積んだビューを AppKit に描かせる（isFlipped の文字の向きもそのまま）
+            let views = AccountMenu.items(snap, loading: false).compactMap(\.view)
+            let h = views.reduce(0) { $0 + $1.frame.height } + pad * 2
+            let panel = NSBox(frame: NSRect(x: 0, y: 0, width: w, height: h))
+            panel.boxType = .custom
+            panel.borderWidth = 0
+            panel.cornerRadius = 10
+            panel.fillColor = .windowBackgroundColor
+            panel.contentViewMargins = .zero
+            panel.appearance = NSAppearance(named: name)
+            var y = h - pad
+            for v in views {
+                y -= v.frame.height
+                v.frame = NSRect(x: 0, y: y, width: w, height: v.frame.height)
+                panel.addSubview(v)
+            }
+            guard let rep = panel.bitmapImageRepForCachingDisplay(in: panel.bounds) else { return 1 }
+            panel.cacheDisplay(in: panel.bounds, to: rep)
+            panels.append(rep)
+        }
+        let W = panels.reduce(0) { $0 + $1.pixelsWide } + Int(gap * 2)
+        let H = panels.map(\.pixelsHigh).max() ?? 0
+        let ctx = makeContext(W, H)
+        var x = 0
+        for p in panels {
+            if let cg = p.cgImage { ctx.draw(cg, in: CGRect(x: x, y: H - p.pixelsHigh, width: p.pixelsWide, height: p.pixelsHigh)) }
+            x += p.pixelsWide + Int(gap * 2)
+        }
         return write(ctx.makeImage()!, out)
     }
 
