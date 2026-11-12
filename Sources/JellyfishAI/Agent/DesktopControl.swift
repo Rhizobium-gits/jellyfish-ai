@@ -40,6 +40,9 @@ final class DesktopControl {
         "アクセシビリティ: \(hasAccessibility ? "許可済み" : "未許可") / 画面収録: \(hasScreenRecording ? "許可済み" : "未許可")"
     }
 
+    /// 「PC 操作」スイッチが守る範囲（ユーザーが実際の権限を正しく把握できるように）
+    static let scopeNote = "「PC 操作」スイッチは、Jellyfish の PC 操作ツール（クリック・入力・画面の撮影など）をそのエージェントに渡すかどうかを決めます。macOS の許可は Jellyfish AI アプリ全体に付くため、スイッチがオフのエージェントでも、Claude Code が実行するコマンド（screencapture など）はアプリに付いた許可の範囲で動けます。使わなくなったら「システム設定 › プライバシーとセキュリティ」で許可を外してください。"
+
     // MARK: - 運転席（同時に 1 体だけ）
 
     /// 操作の前に呼ぶ。別のエージェントが操作中なら、その名前を返す
@@ -102,7 +105,7 @@ final class DesktopControl {
             "max": ["type": "number", "description": "返す部品の最大数（既定 150）"],
          ]]],
         ["name": "open_app",
-         "description": "アプリを開いて前面にする（名前か bundle ID）。URL を渡すと既定のアプリで開く。",
+         "description": "アプリを開いて前面にする（名前か bundle ID）。http / https の URL を渡すと既定のブラウザで開く。",
          "inputSchema": ["type": "object", "properties": [
             "name": ["type": "string"], "url": ["type": "string"],
          ]]],
@@ -153,7 +156,9 @@ final class DesktopControl {
             reply("アクセシビリティの権限がありません。ユーザーに「システム設定 › プライバシーとセキュリティ › アクセシビリティ で Jellyfish AI を許可」してもらってください。", true)
             return
         }
-        if ["mouse_click", "mouse_drag", "scroll", "type_text", "press_keys", "open_app"].contains(tool) {
+        // 画面を読むだけのツールも含めて、使っている間は画面の縁を光らせ Esc で止められるようにする
+        if ["mouse_click", "mouse_drag", "scroll", "type_text", "press_keys", "open_app",
+            "screen_capture", "list_windows", "ui_elements"].contains(tool) {
             if let other = acquire(agent, name: name, color: color) {
                 reply("いまは「\(other)」が PC を操作中です。少し待ってからやり直してください。", true)
                 return
@@ -177,7 +182,11 @@ final class DesktopControl {
             let max = Int(num("max") ?? 150)
             reply(DesktopControl.uiElements(app: a["app"] as? String, max: min(max, 400)), false)
         case "open_app":
-            if let u = (a["url"] as? String).flatMap(URL.init(string:)) {
+            if let s = a["url"] as? String {
+                // Web ページだけ（jellyfish:// や他のアプリのスキーム・ファイルは開かない）
+                guard let u = URL(string: s), ["http", "https"].contains(u.scheme?.lowercased() ?? "") else {
+                    reply("url は http / https だけ開けます", true); return
+                }
                 NSWorkspace.shared.open(u)
                 reply("開きました: \(u.absoluteString)", false)
             } else if let n = a["name"] as? String {
@@ -278,6 +287,7 @@ final class DesktopControl {
         func frame(_ e: AXUIElement) -> CGRect? {
             guard let p = attr(e, kAXPositionAttribute), let s = attr(e, kAXSizeAttribute) else { return nil }
             var pt = CGPoint.zero, sz = CGSize.zero
+            guard CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
             AXValueGetValue(p as! AXValue, .cgPoint, &pt)
             AXValueGetValue(s as! AXValue, .cgSize, &sz)
             return CGRect(origin: pt, size: sz)
@@ -302,12 +312,12 @@ final class DesktopControl {
                 for k in kids { walk(k, depth: depth + 1) }
             }
         }
-        if let win = attr(root, kAXFocusedWindowAttribute) {
+        if let win = attr(root, kAXFocusedWindowAttribute), CFGetTypeID(win) == AXUIElementGetTypeID() {
             walk(win as! AXUIElement, depth: 0)
         } else {
             walk(root, depth: 0)
         }
-        if let menu = attr(root, kAXMenuBarAttribute) {
+        if let menu = attr(root, kAXMenuBarAttribute), CFGetTypeID(menu) == AXUIElementGetTypeID() {
             // メニューバーは上の階層だけ
             if let kids = attr(menu as! AXUIElement, kAXChildrenAttribute) as? [AXUIElement] {
                 for k in kids.prefix(15) {

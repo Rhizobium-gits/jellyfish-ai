@@ -298,7 +298,7 @@ final class TeamCoordinator {
         let others = (manager?.controllers ?? [])
             .filter { $0.isVisible && $0 !== t && !moving.contains(ObjectIdentifier($0)) }
             .map(\.anchorPoint)
-        let vf = (t.panel.screen ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        let vf = (t.panel.screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         // 来た向きを優先し、ふさがっていれば 30° ずつ回して探す
         for k in [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6] {
             let ang = base + CGFloat(k) * .pi / 6
@@ -543,7 +543,15 @@ final class TeamCoordinator {
 
     private func handle(_ conn: BusConnection, _ msg: [String: Any]) {
         if msg["jellyfish"] as? String == "hello" {
-            conn.agentID = (msg["agent"] as? String).flatMap(UUID.init(uuidString:))
+            // 名乗ったエージェントの claude（このアプリが起動したプロセス）の子からの接続だけを受け付ける。
+            // 同じユーザーの別のプロセスがエージェントになりすまして PC 操作ツールを使えないように
+            let id = (msg["agent"] as? String).flatMap(UUID.init(uuidString:))
+            if let id, let c = controller(id), let pid = manager?.runtime(for: c)?.processID,
+               ProcessTree.isDescendant(conn.peerPID, of: pid) {
+                conn.agentID = id
+            } else {
+                AppLog.write("team bus: refused hello agent=\(id.map { String($0.uuidString.prefix(8)) } ?? "-") peer=\(conn.peerPID)")
+            }
             return
         }
         guard let method = msg["method"] as? String else { return }
@@ -556,7 +564,7 @@ final class TeamCoordinator {
         case "initialize":
             let pv = (msg["params"] as? [String: Any])?["protocolVersion"] as? String ?? "2025-06-18"
             reply(["protocolVersion": pv, "capabilities": ["tools": [:]],
-                   "serverInfo": ["name": "jellyfish", "version": "0.2.0"],
+                   "serverInfo": ["name": "jellyfish", "version": AppInfo.version],
                    "instructions": "Jellyfish AI のチーム機能。線でつながった仲間のエージェントに作業を頼み、結果を受け取る。"])
         case "ping":
             reply([:])

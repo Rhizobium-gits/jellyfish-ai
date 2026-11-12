@@ -21,15 +21,15 @@ enum ScreenTarget: String, Codable, CaseIterable {
 }
 
 enum ScreenIntent {
-    /// 画面を指す言い回し（日本語・英語）
+    /// 画面を指す言い回し（日本語・英語）。
+    /// 「一覧を表示して」「ポートが開いているか」「このコードを直して」（コードを貼った場合）のような普通の指示で
+    /// 画面全体を撮って送らないよう、画面・ウィンドウ・ページをはっきり指すものだけにしている
     static let phrases: [String] = [
         "この画面", "今の画面", "いまの画面", "画面の", "画面に", "画面上", "画面を見", "画面で",
-        "表示されて", "表示して", "表示中", "映って", "写って", "今開いて", "いま開いて", "開いている", "開いてる",
-        "見ている", "見てる", "見えている", "このウィンドウ", "このページ", "このサイト", "このタブ",
-        "このエラー", "この図", "このグラフ", "この画像", "このスライド", "このデザイン", "この表",
-        "このコード", "このモデル", "この部分", "ここの", "スクショ", "スクリーンショット",
+        "表示されて", "表示中の", "映って", "写って", "今開いて", "いま開いて", "見えている", "見えてる",
+        "このウィンドウ", "このページ", "このサイト", "このタブ", "このスライド", "スクショ", "スクリーンショット",
         "this screen", "my screen", "on screen", "on the screen", "screenshot", "currently open",
-        "i'm looking at", "im looking at", "this page", "this window", "this error", "this chart", "this figure",
+        "i'm looking at", "im looking at", "this page", "this window",
     ]
 
     static func refersToScreen(_ text: String) -> Bool {

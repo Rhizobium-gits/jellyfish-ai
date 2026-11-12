@@ -62,6 +62,7 @@ final class AgentRuntime {
     private let backendProvider: () -> AgentBackend?
 
     var isRunning: Bool { handle != nil }
+    var processID: Int32? { handle?.processID }
 
     init(agentID: UUID, baseDir: URL, backendProvider: @escaping () -> AgentBackend?) {
         self.agentID = agentID
@@ -307,8 +308,12 @@ final class AgentRuntime {
         if let d = try? enc.encode(turns) { try? d.write(to: dir.appendingPathComponent("history.json"), options: .atomic) }
     }
 
-    /// クラゲ削除時、実行中でなければ記録ごと消す
-    func deleteFiles() {
-        try? FileManager.default.removeItem(at: dir)
+    /// クラゲを消したときに、ツールの結果を含む生イベントと画面の画像を消す。
+    /// 会話は Claude Code のセッションに残り（「過去のセッションを開く」で戻せる）、文字起こしはユーザーの資料なので残す
+    func deleteScratchFiles() {
+        let fm = FileManager.default
+        for name in ["events.jsonl", "events.1.jsonl", "attachments", "screens", "open-in-claude.command"] {
+            try? fm.removeItem(at: dir.appendingPathComponent(name))
+        }
     }
 }

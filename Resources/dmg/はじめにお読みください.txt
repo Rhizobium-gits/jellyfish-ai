@@ -1,0 +1,33 @@
+Jellyfish AI のインストール
+==========================
+
+1. 「JellyfishAI」を右の「Applications」フォルダへドラッグします。
+2. アプリケーションフォルダの JellyfishAI を開きます。
+
+初回だけ「開けません」「Apple は検証できませんでした」と表示されます。
+Jellyfish AI は Apple の開発者署名・公証を受けていない個人の開発物のためです。
+内容を確認したうえで開く場合は、次の手順で許可してください（macOS の正規の手順です）。
+
+  1. 表示されたダイアログは「完了」で閉じる
+  2. システム設定 › プライバシーとセキュリティ を開く
+  3. 下の方にある JellyfishAI がブロックされたという表示の横の
+     「このまま開く」を押し、パスワード（または Touch ID）で確認する
+
+2 回目以降は普通に開けます。
+
+必要なもの
+- macOS 14 以降（システムの音の文字起こしは macOS 26 以降）
+- Claude Code（claude コマンド）をインストールして、ログイン済みであること
+  https://code.claude.com/docs/en/setup
+
+使い方・権限・データの保存場所は README を見てください。
+https://github.com/Rhizobium-gits/jellyfish-ai
+
+
+Installing Jellyfish AI
+-----------------------
+Drag "JellyfishAI" to "Applications" and open it. Because the app is not
+notarized by Apple, macOS blocks the first launch. To allow it, close the
+dialog, open System Settings > Privacy & Security, and click "Open Anyway"
+next to the message about JellyfishAI. Requires macOS 14+ and Claude Code
+(the `claude` CLI) installed and signed in.

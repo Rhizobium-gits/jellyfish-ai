@@ -25,8 +25,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         ShellEnvironment.shared.prefetch()
+        DispatchQueue.global(qos: .utility).async { DataJanitor.cleanUp(dataDir: AppPaths.dataDir) }
         installMainMenu()
         let store = Store()
+        // 初めての起動（データフォルダにまだクラゲの記録がない）なら、使い方と権限の案内を出す
+        let firstLaunch = !store.hasSavedJellies
         manager = JellyManager(store: store)
         shortcuts = Shortcuts(manager: manager)
         statusBar = StatusBarController(manager: manager, shortcuts: shortcuts)
@@ -41,6 +44,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         pendingURLs.forEach(handle)
         pendingURLs.removeAll()
+
+        AppLog.write("launch v\(AppInfo.version) (\(AppInfo.build)) macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        if firstLaunch {
+            let key = (shortcuts.activeNewJelly ?? manager.settings.newJellyHotKey).display
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                guard let self else { return }
+                AppInfo.showWelcome(manager: self.manager, newJellyKey: key)
+            }
+        }
     }
 
     /// チャット欄で ⌘C / ⌘V / ⌘A / ⌘Z、ウィンドウの ⌘M / ⌘W / フルスクリーンが効くようにメインメニューを用意する
@@ -58,7 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.keyEquivalentModifierMask = mods
             return i
         }
+        let about = NSMenuItem(title: "Jellyfish AI について", action: #selector(showAbout), keyEquivalent: "")
+        about.target = self
         sub("Jellyfish AI", [
+            about,
+            .separator(),
             item("Jellyfish AI を隠す", #selector(NSApplication.hide(_:)), "h"),
             .separator(),
             item("Jellyfish AI を終了", #selector(NSApplication.terminate(_:)), "q"),
@@ -82,11 +98,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = main
     }
 
+    @objc private func showAbout() { AppInfo.showAbout() }
+
     func applicationWillTerminate(_ notification: Notification) {
         manager?.shutdown()
     }
 
-    /// jellyfish:// URL スキーム（自動テスト・ショートカット.app・Raycast 等からの操作用）
+    /// jellyfish:// URL スキーム（ショートカット.app・Raycast 等からの操作と、自動テスト・デモ録画用）
+    /// 外から誰でも呼べる（Web ページのリンクからも開ける）ので、普段は URLRoutes.publicRoutes だけ受け付ける。
+    /// 指示の送信・PC 操作の許可・作業フォルダの変更・削除などは、環境変数 JELLYFISH_AUTOMATION=1 を付けて
+    /// 起動したとき（scripts/demo/record.sh）だけ動く
     ///   jellyfish://new[?chat=0&cwd=~/dir]    新しいクラゲ（chat=0 で入力欄を開かない、cwd で作業フォルダ）
     ///   jellyfish://type?agent=2&text=...     入力欄に 1 文字ずつ打ち込んで送信（デモ録画用、cps=打鍵/秒）
     ///   jellyfish://press?agent=2             長押しと同じ動作（デモ録画用）
@@ -107,8 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handle(_ url: URL) {
-        guard url.scheme == "jellyfish" else { return }
-        if url.host != "debug" { AppLog.write("url: \(url.host ?? "") \(url.query?.prefix(60) ?? "")") }
+        guard URLRoutes.allowed(url, automation: URLRoutes.automationEnabled) else {
+            if url.scheme == "jellyfish" { AppLog.write("url refused: \(url.host ?? "")（JELLYFISH_AUTOMATION=1 で起動したときだけ受け付ける）") }
+            return
+        }
+        if url.host != "debug" { AppLog.write("url: \(url.host ?? "")") }
         let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func param(_ k: String) -> String? { q.first { $0.name == k }?.value }
         let agent = param("agent").flatMap(Int.init).flatMap { manager.controller(number: $0) }
@@ -188,5 +212,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let v = param("v").flatMap(Double.init) { manager.setScale(min(max(v, 0.5), 2.0)) }
         default: break
         }
+    }
+}
+
+/// jellyfish:// のどの操作を受け付けるか
+enum URLRoutes {
+    /// 外から呼ばれても困らない操作（表示の切り替え・新しいクラゲ・チャットを開く・見た目）
+    static let publicRoutes: Set<String> = ["new", "toggle", "show", "hide", "arrange", "open", "style", "scale"]
+
+    static var automationEnabled: Bool { ProcessInfo.processInfo.environment["JELLYFISH_AUTOMATION"] == "1" }
+
+    static func allowed(_ url: URL, automation: Bool) -> Bool {
+        guard url.scheme?.lowercased() == "jellyfish" else { return false }
+        if automation { return true }
+        let host = (url.host ?? "").lowercased()
+        guard publicRoutes.contains(host) else { return false }
+        // 作業フォルダの指定は自動化のときだけ
+        let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if host == "new", q.contains(where: { $0.name == "cwd" }) { return false }
+        return true
     }
 }

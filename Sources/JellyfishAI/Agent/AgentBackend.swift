@@ -29,6 +29,8 @@ struct AgentRunOptions {
 /// 実行中の 1 ターン
 protocol AgentHandle: AnyObject {
     var isRunning: Bool { get }
+    /// 実行中のプロセス（チーム用ソケットにつないできた相手が、このエージェントの claude の子かを確かめるため）
+    var processID: Int32? { get }
     func cancel()
 }
 

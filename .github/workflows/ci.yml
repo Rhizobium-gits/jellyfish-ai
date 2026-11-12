@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    # SpeechAnalyzer など macOS 26 の SDK が必要
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # ビルド番号にコミット数を使う
+      - name: Toolchain
+        run: swift --version
+      - name: Test
+        run: scripts/test.sh
+      - name: Build (universal)
+        run: scripts/build.sh --universal
+      - name: Verify bundle
+        run: |
+          codesign --verify --strict --verbose=2 dist/JellyfishAI.app
+          lipo -archs dist/JellyfishAI.app/Contents/MacOS/JellyfishAI | grep -q x86_64
+          lipo -archs dist/JellyfishAI.app/Contents/MacOS/JellyfishAI | grep -q arm64
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" dist/JellyfishAI.app/Contents/Info.plist

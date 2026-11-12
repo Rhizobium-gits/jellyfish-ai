@@ -64,6 +64,10 @@ final class TeamBus {
             // 待ち受け側の O_NONBLOCK を引き継ぐので、読み書きは普通の（ブロックする）ソケットに戻す
             _ = fcntl(c, F_SETFL, fcntl(c, F_GETFL) & ~O_NONBLOCK)
             let conn = BusConnection(fd: c, queue: queue)
+            // つないできたプロセス（hello の名乗りを確かめるのに使う）
+            var pid: pid_t = 0
+            var plen = socklen_t(MemoryLayout<pid_t>.size)
+            if getsockopt(c, SOL_LOCAL, LOCAL_PEERPID, &pid, &plen) == 0 { conn.peerPID = pid }
             conn.onMessage = { [weak self, weak conn] obj in
                 guard let self, let conn else { return }
                 DispatchQueue.main.async { self.onMessage?(conn, obj) }
@@ -86,8 +90,9 @@ final class BusConnection {
     private var source: DispatchSourceRead?
     private var buffer = Data()
     private var closed = false
-    /// hello で名乗ったエージェント
+    /// hello で名乗ったエージェント（そのエージェントの claude の子プロセスだと確かめられたときだけ入る）
     var agentID: UUID?
+    var peerPID: pid_t = 0
     var onMessage: (([String: Any]) -> Void)?
     var onClose: (() -> Void)?
 
@@ -203,5 +208,28 @@ enum TeamBridge {
         }
         close(fd)
         return 0
+    }
+}
+
+/// プロセスの親子関係
+enum ProcessTree {
+    static func parent(of pid: pid_t) -> pid_t? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        return info.kp_eproc.e_ppid
+    }
+
+    /// pid が ancestor の子孫か（間にシェルなどが挟まっても数段までたどる）
+    static func isDescendant(_ pid: pid_t, of ancestor: pid_t, maxDepth: Int = 6) -> Bool {
+        guard pid > 1, ancestor > 1 else { return false }
+        var p = pid
+        for _ in 0..<maxDepth {
+            guard let pp = parent(of: p), pp > 1 else { return false }
+            if pp == ancestor { return true }
+            p = pp
+        }
+        return false
     }
 }

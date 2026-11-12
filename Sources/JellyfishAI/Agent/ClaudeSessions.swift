@@ -83,12 +83,41 @@ enum ClaudeSessions {
         return ClaudeSessionInfo(id: file.deletingPathExtension().lastPathComponent, file: file, cwd: cwd, title: name, modified: mod)
     }
 
-    /// 会話を読み出す（ユーザーの指示・アシスタントの返答・ツールの使用）
+    /// 読んだところまでの位置と結果（セッションのファイルは追記だけなので、次回は増えた分だけ読む）
+    private static var parsed: [String: (offset: UInt64, out: [SessionMessage])] = [:]
+    private static let parsedLock = NSLock()
+
+    /// 会話を読み出す（ユーザーの指示・アシスタントの返答・ツールの使用）。
+    /// 実行中は何度も呼ばれ、ファイルが数十 MB になることもあるので、前回の続きから読む
     static func messages(in file: URL, limit: Int = 300) -> [SessionMessage] {
-        guard let data = try? Data(contentsOf: file) else { return [] }
+        guard let h = try? FileHandle(forReadingFrom: file) else { return [] }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        parsedLock.lock()
+        var state = parsed[file.path]
+        parsedLock.unlock()
+        if let s = state, s.offset > size { state = nil }   // 短くなった（書き直された）ら最初から
+        var offset = state?.offset ?? 0
+        var out = state?.out ?? []
+        if offset < size {
+            try? h.seek(toOffset: offset)
+            let data = h.readDataToEndOfFile()
+            // 書きかけの最後の行は次回に回す
+            if let nl = data.lastIndex(of: 0x0A) {
+                append(data[data.startIndex..<nl], to: &out)
+                offset += UInt64(nl - data.startIndex + 1)
+                if out.count > limit * 2 { out = Array(out.suffix(limit)) }
+                parsedLock.lock()
+                parsed[file.path] = (offset, out)
+                parsedLock.unlock()
+            }
+        }
+        return Array(out.suffix(limit))
+    }
+
+    private static func append(_ data: Data, to out: inout [SessionMessage]) {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var out: [SessionMessage] = []
         for line in data.split(separator: 0x0A) {
             guard let d = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   let type = d["type"] as? String, type == "user" || type == "assistant",
@@ -123,6 +152,5 @@ enum ClaudeSessions {
                 }
             }
         }
-        return Array(out.suffix(limit))
     }
 }

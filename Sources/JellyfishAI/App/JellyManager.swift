@@ -108,11 +108,28 @@ final class JellyManager {
                                  model: settings.model.isEmpty ? nil : settings.model)
     }
 
-    var policyDescription: String { backend()?.policyDescription ?? "claude が見つかりません" }
+    /// 画面表示用（待たない。起動直後は「確認中」）
+    private var peekBackend: ClaudeCodeBackend? {
+        guard case .found(let install) = ClaudeLocator.status(override: settings.claudePath) else { return nil }
+        return ClaudeCodeBackend(install: install, permissionMode: settings.permissionMode,
+                                 model: settings.model.isEmpty ? nil : settings.model)
+    }
+
+    var policyDescription: String {
+        if let b = peekBackend { return b.policyDescription }
+        if case .detecting = ClaudeLocator.status(override: settings.claudePath) { return "Claude Code を確認中…" }
+        return "claude が見つかりません"
+    }
+
+    /// 実際に付ける --permission-mode（その版に auto が無ければ acceptEdits に落ちる）
+    var effectivePermissionMode: String { peekBackend?.permissionMode ?? settings.permissionMode }
 
     var claudePathDescription: String {
-        guard let i = ClaudeLocator.best(override: settings.claudePath) else { return "未検出" }
-        return "\(i.versionString)  \(i.url.path)"
+        switch ClaudeLocator.status(override: settings.claudePath) {
+        case .found(let i): return "\(i.versionString)  \(i.url.path)"
+        case .detecting: return "確認中…"
+        case .notFound: return "未検出（Claude Code をインストールしてください）"
+        }
     }
 
     /// 起動直後に claude の検出（バージョン・オプション確認）を済ませておく
@@ -194,7 +211,10 @@ final class JellyManager {
     }
 
     var claudeExecutable: URL? { ClaudeLocator.best(override: settings.claudePath)?.url }
-    var supportsEffort: Bool { ClaudeLocator.best(override: settings.claudePath)?.supportsEffort ?? false }
+    var supportsEffort: Bool {
+        if case .found(let i) = ClaudeLocator.status(override: settings.claudePath) { return i.supportsEffort }
+        return false
+    }
 
     func rememberChatSize(_ size: NSSize) {
         guard size.width >= 380, size.height >= 240 else { return }
@@ -352,9 +372,21 @@ final class JellyManager {
             chat.window.close()
             chatWindowVisibilityChanged()
         }
-        if let rt = runtimes.removeValue(forKey: c.record.id), !rt.isRunning {
-            rt.onState = nil
-            rt.onUpdate = nil
+        if let rt = runtimes.removeValue(forKey: c.record.id) {
+            if rt.isRunning {
+                // 実行中のまま参照を手放すと claude が止められなくなるので、終わるまで持っておく（終了時にも止める）
+                if !detached.contains(where: { $0 === rt }) {
+                    rt.onUpdate = nil
+                    detached.append(rt)
+                    rt.onState = { [weak self, weak rt] s in
+                        if s.isTerminal || s == .error { self?.detached.removeAll { $0 === rt } }
+                    }
+                }
+            } else {
+                rt.onState = nil
+                rt.onUpdate = nil
+                rt.deleteScratchFiles()
+            }
         }
         controllers.removeAll { $0 === c }
         c.despawn {}
@@ -444,7 +476,7 @@ final class JellyManager {
         let sx = L.stepX * 1.5, sy = L.stepY * 1.35
         let offsets: [(CGFloat, CGFloat)] = [(-sx, 0), (-sx * 0.6, -sy), (-sx * 0.6, sy), (0, -sy), (0, sy),
                                              (-sx * 1.6, -sy), (-sx * 1.6, sy), (-2 * sx, 0), (sx * 0.5, -sy), (sx * 0.5, sy)]
-        let vf = (p.panel.screen ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        let vf = (p.panel.screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let others = controllers.filter { $0 !== p && !$0.record.hidden }.map { $0.panel.frame.origin } + [o]
         for (dx, dy) in offsets {
             let c = NSPoint(x: o.x + dx, y: o.y + dy)
@@ -751,7 +783,7 @@ final class JellyManager {
         }
         items.append(ClosureMenuItem("定位置に戻す") { [weak self, weak c] in if let c { self?.resetPosition(c) } })
         items.append(.separator())
-        items.append(ClosureMenuItem("このクラゲを削除") { [weak self, weak c] in if let c { self?.remove(c) } })
+        items.append(ClosureMenuItem("このクラゲを削除") { [weak self, weak c] in if let c { self?.requestRemove(c) } })
         return items
     }
 

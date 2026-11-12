@@ -31,7 +31,7 @@ final class ClaudeCodeBackend: AgentBackend {
              onExit: @escaping (Int32, String) -> Void) throws -> AgentHandle {
         let p = Process()
         p.executableURL = executable
-        var args = ["-p", prompt,
+        var args = ["-p",
                     "--output-format", "stream-json", "--verbose",
                     "--permission-mode", permissionMode]
         if install.supportsPermissionPrompts { args += ["--permission-prompts", "none"] }
@@ -50,6 +50,9 @@ final class ClaudeCodeBackend: AgentBackend {
         if let sp = options.appendSystemPrompt, !sp.isEmpty, install.supportsAppendSystemPrompt {
             args += ["--append-system-prompt", sp]
         }
+        // 指示は最後に「--」のあとで渡す。「- README を直して」のように - で始まる指示がオプションと
+        // 間違われない（claude 2.1.322 で確認：-p の直後に置くと unknown option になる）
+        args += ["--", prompt]
         p.arguments = args
         p.currentDirectoryURL = cwd
         p.environment = ShellEnvironment.shared.environment().merging(options.env) { _, new in new }
@@ -61,6 +64,8 @@ final class ClaudeCodeBackend: AgentBackend {
 
         try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
         let eventsURL = logDir.appendingPathComponent("events.jsonl")
+        // 生イベント（調査用）は 4MB を超えたら 1 世代だけ残して入れ替える（ツールの結果を含むので際限なく溜めない）
+        LogRotation.rotate(eventsURL, maxBytes: 4_000_000)
         if !FileManager.default.fileExists(atPath: eventsURL.path) {
             FileManager.default.createFile(atPath: eventsURL.path, contents: nil)
         }
@@ -105,6 +110,7 @@ final class ClaudeHandle: AgentHandle {
     init(process: Process) { self.process = process }
 
     var isRunning: Bool { process.isRunning }
+    var processID: Int32? { process.isRunning ? process.processIdentifier : nil }
 
     /// まず SIGINT（Claude Code が後始末できる）、3 秒で終わらなければ SIGTERM
     func cancel() {

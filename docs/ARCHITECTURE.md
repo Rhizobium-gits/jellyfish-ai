@@ -99,13 +99,25 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 
 ## 画面認識の流れ
 
-1. 送信時に `ScreenIntent.refersToScreen`（「この画面」「表示されて」「今開いて」「このエラー」「この図」「スクショ」、"this screen" など）で判定
-2. `SCShareableContent` → 自分のアプリを除外した `SCContentFilter` → `SCScreenshotManager.captureImage`（長辺 2560px）
+1. 送信時に `ScreenIntent.refersToScreen`（「この画面」「表示されて」「今開いて」「このページ」「スクショ」、"this screen" など、画面をはっきり指す言い回しだけ）で判定。「一覧を表示して」「このコードを直して」のような普通の指示では撮らない
+2. `SCShareableContent` → 自分のアプリを除外した `SCContentFilter` → `SCScreenshotManager.captureImage`（長辺 1568px まで、実ピクセルより大きくしない）
 3. `agents/<id>/attachments/screen-*.png` に保存し、指示の末尾に「画面コンテキスト」としてパス・前面アプリ・ウィンドウ名を添える
 4. Claude Code が Read ツールで画像を読んで作業する（チャット表示ではこの部分を「📷 画面を添付しました」に置き換える）
 
 ## 5. 既知の注意点
 
 - ⌘L はグローバルに奪うため、ブラウザのアドレスバー移動などと競合する。`settings.json` の `hotKeyPassthroughApps` に bundle ID を入れたアプリが前面の間だけ ⌘L を解放する。他アプリが先に ⌘L を登録していた場合は ⌃⌥L に切り替えてメニューに表示する。
-- アドホック署名なので、Phase 4 で画面収録権限を与えると再ビルドのたびに許可が外れる。Phase 4 着手時に固定の自己署名証明書を作るかを決める。
+- アドホック署名なので、再ビルド・新しい版への入れ替えのたびに画面収録・アクセシビリティの許可が外れる（TCC が署名の cdhash で識別するため）。Apple Developer ID で署名・公証すれば解消する。
 - アプリを終了すると実行中のエージェントは中断される（次回起動時に「中断」として記録）。終了後も続けるには Phase 5 のデーモン化が必要。
+
+## 6. 配布と外部からの入口
+
+- **ビルド**：`scripts/build.sh`（この Mac の CPU）/ `--universal`（arm64 と x86_64 を別々に `swift build --arch` して `lipo`）。`VERSION` を CFBundleShortVersionString、コミット数を CFBundleVersion に入れ、アドホック署名する
+- **配布物**：`scripts/release.sh` が テスト → universal ビルド → 署名と CPU の確認 → .dmg（Applications へのリンクと「はじめにお読みください」）・.zip・SHA256SUMS.txt を作る。`--publish` で CHANGELOG の該当節をノートにして `gh release create`
+- **CI**：`.github/workflows/ci.yml`（macos-26。SpeechAnalyzer など macOS 26 の SDK が要る）でテストと universal ビルド
+- **テスト**：`Tests/JellyfishAITests`（Swift Testing）。画面や claude を使わない判定ロジック（URL の受け付け、バージョン比較、外部 MCP の判定、設定の読み込み、画面添付の判定、プロセスの親子判定、セッションの増分読み込み）。Command Line Tools だけの環境では `scripts/test.sh` が Testing.framework の場所を渡す
+- **`jellyfish://`**：`URLRoutes.allowed` が受け付ける操作を決める。普段は表示系（`new`・`open`・`toggle`・`show`・`hide`・`arrange`・`style`・`scale`）だけ。指示の送信・PC 操作の許可・作業フォルダ・削除などは `JELLYFISH_AUTOMATION=1` で起動したときだけ（デモ録画は `scripts/demo/record.sh` が付ける）
+- **チームのソケット**：`bus.sock`（0600）。接続ごとに `LOCAL_PEERPID` で相手のプロセスを取り、hello で名乗ったエージェントの claude（`AgentRuntime.processID`）の子孫であることを `ProcessTree.isDescendant` で確かめてから受け付ける
+- **通信**：アプリ自身はメニューの「アップデートを確認…」のときだけ `api.github.com/repos/…/releases/latest` を読む。自動の確認・利用状況の送信はしない
+- **片付け**：起動時に 7 日より古い画面の画像を消す（`DataJanitor`）。`app.log` は 2MB、`events.jsonl` は 4MB で 1 世代に入れ替える（`LogRotation`）。クラゲを消すとそのクラゲの生イベントと画像を消す
+

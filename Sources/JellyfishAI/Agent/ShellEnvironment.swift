@@ -83,13 +83,43 @@ struct ClaudeInstall {
 /// `--version` を調べて一番新しいものを選び、`--help` でオプションの有無を確かめる（推測でオプションを付けない）。
 enum ClaudeLocator {
     private static var cached: ClaudeInstall?
+    /// 見つからなかった時刻。30 秒たったらもう一度探す（あとから Claude Code を入れても再起動しなくてよい）
+    private static var missedAt: Date?
+    private static var probing = false
+    /// cached / missedAt / probing を守る（短時間だけ持つ）
     private static let lock = NSLock()
+    /// 探すのは同時に 1 回だけ（シェルの起動や --help で数秒かかることがある）
+    private static let probeLock = NSLock()
+    static let retryInterval: TimeInterval = 30
 
+    enum Status { case detecting, found(ClaudeInstall), notFound }
+
+    /// 画面表示用：待たずに今わかっていることを返す。まだ調べていなければ裏で調べ始める
+    static func status(override: String?) -> Status {
+        lock.lock()
+        let c = cached, missed = missedAt, busy = probing
+        lock.unlock()
+        if let c { return .found(c) }
+        if busy { return .detecting }
+        let stale = missed.map { Date().timeIntervalSince($0) >= retryInterval } ?? true
+        if stale { DispatchQueue.global(qos: .utility).async { _ = best(override: override) } }
+        return missed == nil ? .detecting : .notFound
+    }
+
+    /// 実行用：見つかるまで（または見つからないとわかるまで）待つ
     static func best(override: String?) -> ClaudeInstall? {
-        lock.lock(); defer { lock.unlock() }
-        if let cached { return cached }
+        probeLock.lock(); defer { probeLock.unlock() }
+        lock.lock()
+        if let c = cached { lock.unlock(); return c }
+        if let m = missedAt, Date().timeIntervalSince(m) < retryInterval { lock.unlock(); return nil }
+        probing = true
+        lock.unlock()
         let found = locate(override: override)
+        lock.lock()
         cached = found
+        missedAt = found == nil ? Date() : nil
+        probing = false
+        lock.unlock()
         if let f = found {
             AppLog.write("claude: \(f.url.path) v\(f.versionString) auto=\(f.supportsAutoMode) prompts=\(f.supportsPermissionPrompts)")
         } else {
@@ -98,7 +128,7 @@ enum ClaudeLocator {
         return found
     }
 
-    static func invalidate() { lock.lock(); cached = nil; lock.unlock() }
+    static func invalidate() { lock.lock(); cached = nil; missedAt = nil; lock.unlock() }
 
     private static func locate(override: String?) -> ClaudeInstall? {
         let fm = FileManager.default

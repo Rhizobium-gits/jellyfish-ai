@@ -331,7 +331,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         if UserDefaults.standard.string(forKey: key) != nil, window.frame.width > 0,
            NSScreen.screens.contains(where: { $0.visibleFrame.intersects(window.frame) }) { return }
         let jf = jelly.panel.frame
-        let vf = (jelly.panel.screen ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        let vf = (jelly.panel.screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         var f = window.frame
         f.origin.x = jf.minX - f.width + 8
         if f.minX < vf.minX + 8 { f.origin.x = jf.maxX - 8 }
@@ -554,19 +554,20 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private var typingTimer: Timer?
 
     /// デモ録画・自動テスト用：入力欄に 1 文字ずつ打ち込み、少し間をおいて Enter と同じ送信をする
-    func typeAndSubmit(_ text: String, cps: Double) {
+    func typeAndSubmit(_ text: String, cps rawCPS: Double) {
+        let cps = rawCPS.isFinite ? min(max(rawCPS, 1), 60) : 14
         typingTimer?.invalidate()
         let chars = Array(text)
         var i = 0
         input.string = ""
-        let t = Timer(timeInterval: 1 / max(cps, 1), repeats: true) { [weak self] t in
+        let t = Timer(timeInterval: 1 / cps, repeats: true) { [weak self] t in
             guard let self else { t.invalidate(); return }
             if i < chars.count {
                 self.input.string.append(chars[i])
                 i += 1
                 self.input.needsDisplay = true
                 self.relayoutInput()
-            } else if i < chars.count + Int(max(cps, 1) * 0.6) {
+            } else if i < chars.count + Int(cps * 0.6) {
                 i += 1   // 打ち終わってから送信まで少し待つ
             } else {
                 t.invalidate()
@@ -658,7 +659,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         if on && !(DesktopControl.hasAccessibility && DesktopControl.hasScreenRecording) {
             let a = NSAlert()
             a.messageText = "PC 操作には macOS の許可が必要です"
-            a.informativeText = "「システム設定 › プライバシーとセキュリティ」の「アクセシビリティ」と「画面収録」で Jellyfish AI を許可してください（許可したあとアプリの再起動が必要なことがあります）。\n\n今の状態: \(DesktopControl.permissionSummary)"
+            a.informativeText = "「システム設定 › プライバシーとセキュリティ」の「アクセシビリティ」と「画面収録」で Jellyfish AI を許可してください（許可したあとアプリの再起動が必要なことがあります）。\n\n今の状態: \(DesktopControl.permissionSummary)\n\n" + DesktopControl.scopeNote
             a.addButton(withTitle: "許可の画面を開く")
             a.addButton(withTitle: "あとで")
             if a.runModal() == .alertFirstButtonReturn { DesktopControl.requestPermissions() }
@@ -687,7 +688,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         guard runtime.sessionStarted, let claude = manager?.claudeExecutable else { return }
         let script = """
         #!/bin/zsh -l
-        cd \(shellQuote(runtime.cwd.path)) && exec \(shellQuote(claude.path)) --resume \(runtime.sessionID)
+        cd \(shellQuote(runtime.cwd.path)) && exec \(shellQuote(claude.path)) --resume \(shellQuote(runtime.sessionID))
         """
         let url = runtime.dir.appendingPathComponent("open-in-claude.command")
         do {
@@ -788,7 +789,8 @@ enum Markdown {
                 }
                 a[.font] = f
             }
-            if let link = run.link { a[.link] = link }
+            // 返答の中のリンクは Web とメールだけ押せるようにする（jellyfish:// や他のアプリのスキームは開かない）
+            if let link = run.link, ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") { a[.link] = link }
             out.append(NSAttributedString(string: piece, attributes: a))
         }
         return out

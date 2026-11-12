@@ -194,6 +194,9 @@ final class Store {
         write(settings, to: settingsURL)
     }
 
+    /// クラゲの記録が保存されたことがあるか（初回起動の判定）
+    var hasSavedJellies: Bool { FileManager.default.fileExists(atPath: jelliesURL.path) }
+
     func loadJellies() -> [JellyRecord] {
         guard let data = try? Data(contentsOf: jelliesURL) else { return [] }
         let dec = JSONDecoder()

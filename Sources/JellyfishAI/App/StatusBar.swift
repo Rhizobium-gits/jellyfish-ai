@@ -201,7 +201,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let pm = NSMenu()
         pm.autoenablesItems = false
         pm.addItem(.header("すべてのクラゲ共通：\(manager.policyDescription)"))
-        pm.addItem(.header("claude -p --permission-mode \(manager.backend().map { ($0 as? ClaudeCodeBackend)?.permissionMode ?? "" } ?? s.permissionMode)"))
+        pm.addItem(.header("claude -p --permission-mode \(manager.effectivePermissionMode)"))
         pm.addItem(.header("・確認なしでファイル作成/編集/削除・コマンド実行"))
         pm.addItem(.header("・認証情報の持ち出し、意図しない外部送信、取り返しのつかない操作は"))
         pm.addItem(.header("　Claude Code の安全判定で止まる（OS の権限設定は変更しない）"))
@@ -228,6 +228,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         pcm.addItem(.header("・チャットの「🖱 PC 操作」でエージェントごとにオン（既定オフ）"))
         pcm.addItem(.header("・同時に操作できるのは 1 体。操作中は画面の縁が光り、Esc で止まる"))
         pcm.addItem(.header("・クリックや入力は毎回 Claude Code の安全判定を通る"))
+        pcm.addItem(.header("・macOS の許可はアプリ全体に付く（オフのエージェントのコマンドも許可の範囲で動ける）"))
         pcm.addItem(ClosureMenuItem("許可の画面を開く…") { DesktopControl.requestPermissions() })
         pcItem.submenu = pcm
         menu.addItem(pcItem)
@@ -284,6 +285,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             NSWorkspace.shared.open(dir)
         })
 
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem("Jellyfish AI について") { AppInfo.showAbout() })
+        menu.addItem(ClosureMenuItem("アップデートを確認…") { UpdateChecker.check() })
+        menu.addItem(ClosureMenuItem("使い方（GitHub）") { NSWorkspace.shared.open(AppInfo.repoURL) })
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem("Jellyfish AI を終了", key: "q") { NSApp.terminate(nil) })
     }
