@@ -293,6 +293,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         }
         modelPopup.action = #selector(modelChanged)
         enginePopup.action = #selector(engineChanged)
+        // それぞれの AI の得意なこと（チームで分担するときの目安）
+        for (i, e) in AgentEngine.allCases.enumerated() { enginePopup.item(at: i + 1)?.toolTip = e.teamStrengths }
         enginePopup.toolTip = L("このクラゲが使う AI。変えると新しい会話になります（ログインはメニューバーのクラゲ › 🔑 アカウントと AI）")
         screenPopup.action = #selector(screenModeChanged)
         screenPopup.toolTip = L("「この画面」などと書いたとき、送信時の画面を撮って添付する（Jellyfish のウィンドウは写りません）")
@@ -478,7 +480,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         guard let jelly else { return }
         let r = jelly.record
         let sessionTitle = runtime.sessionTitle
-        window.title = "\(r.title) · \(r.color.name)" + (sessionTitle.map { " — \($0)" } ?? "")
+        let engineName = runtime.effectiveEngine == .claude ? "" : " · " + runtime.effectiveEngine.displayName
+        window.title = "\(r.title) · \(r.color.name)" + engineName + (sessionTitle.map { " — \($0)" } ?? "")
         titleLabel.stringValue = sessionTitle ?? "\(r.title) · \(r.color.name)"
         dot.image = MenuImages.dot(r.color, state: r.state)
 

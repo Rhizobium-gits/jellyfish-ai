@@ -55,6 +55,18 @@ enum AgentEngine: String, Codable, CaseIterable {
     /// Jellyfish の機能のうち、このエンジンで使えるもの（チーム・PC 操作・自律組織・外部 MCP は Claude Code の仕組みを使う）
     var supportsJellyfishTools: Bool { self == .claude }
 
+    /// チームで分担するときの得意なこと・できないこと（Jellyfish での動かし方から決まるもの。リーダーへの案内とメニューに出す）
+    var teamStrengths: String {
+        switch self {
+        case .claude:
+            return L("リーダー・まとめ・レビュー、長い多段の作業、コマンドの実行、Web 検索、PC 操作（許可したとき）、外部ツール（MCP）。仲間に頼める（チームのツールを持つのは Claude だけ）")
+        case .codex:
+            return L("コードの実装・修正、テストやビルドの実行（作業フォルダの中だけ。ネットワークなしなので、Web 検索・パッケージのダウンロードはできない）")
+        case .gemini:
+            return L("Google 検索・Web ページを読んでの調査、たくさんの資料やコードを読んでの要約・比較、文章を書く・ファイルを直す（シェルのコマンドは実行しない）")
+        }
+    }
+
     /// 実行ポリシーの説明（確認なしで何をするか）
     var policyLine: String {
         switch self {

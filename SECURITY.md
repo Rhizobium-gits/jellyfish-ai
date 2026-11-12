@@ -27,7 +27,9 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
   - Claude：Auto モード（`--permission-mode auto`）
   - Codex：`codex exec --json` を `sandbox_mode="workspace-write"`（作業フォルダの中だけ書ける・ネットワークなし）・`approval_policy="never"`（権限の追加を求めない）で
   - Gemini：`--approval-mode auto_edit`（作業フォルダの中の編集だけ自動で承認し、シェルのコマンドは実行しない）。フォルダの信頼の確認は飛ばさず、信頼していないフォルダでは動かしません
-- チーム・PC 操作・自律組織・外部ツール（MCP）は Claude だけで使えます（Codex・Gemini には Jellyfish の MCP ツールを渡しません）
+- チームを率いること（仲間に頼む・仲間を作る）・PC 操作・自律組織・外部ツール（MCP）は Claude だけで使えます（Codex・Gemini には Jellyfish の MCP ツールを渡しません）。Codex・Gemini のクラゲは、仲間として頼まれた作業だけをします
+- AI をまたいだデータの受け渡しは、リーダーの依頼ごとに作る **受け渡し用のフォルダ**（`~/Library/Application Support/JellyfishAI/handoff/<日時>-agent<番号>-<ランダム>`、本人だけが開ける 700）だけで行います。その依頼のチームの仲間にだけ、作業フォルダに加えてこのフォルダの読み書きを許します（Claude は `--add-dir`、Codex はサンドボックスの `writable_roots`、Gemini は `--include-directories`）。サンドボックスの外の場所を広く開けることはしません。空のフォルダはそのターンの終わりに、使ったものは 7 日で片付けます
+- AI ごと・モデルごとの使用量（呼び出しの回数と、CLI が報告したトークン）は `usage.json`（600）に日ごとに数えるだけで、どこにも送りません。Claude のアカウントはメールそのものではなく、メールの短いハッシュで区別します。60 日より古い日は捨てます
 
 ### PC 操作（既定オフ）
 

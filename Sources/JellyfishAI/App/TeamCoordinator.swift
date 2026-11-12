@@ -14,6 +14,8 @@ final class TeamTask {
     /// 自律組織のエピソード（学習で使う）
     var episode: String?
     var cost: Double?
+    /// この依頼のチームで共有する受け渡し用のフォルダ（データフォルダの handoff/ の下）
+    var handoff: URL?
     var result: String?
     var delivered = false
     let createdAt = Date()
@@ -55,6 +57,8 @@ final class TeamCoordinator {
     private var activeEpisode: [UUID: (id: String, started: Date, genome: OrgGenome)] = [:]
     /// 前の担当が終わるのを待っている依頼
     private var blocked: [String] = []
+    /// リーダー（ユーザーが頼んだクラゲ）のいまの依頼の、受け渡し用のフォルダ
+    private var leadHandoff: [UUID: URL] = [:]
 
     private struct Waiter {
         let id = UUID()
@@ -445,6 +449,7 @@ final class TeamCoordinator {
         let url = rt.dir.appendingPathComponent("mcp.json")
         guard let data = try? JSONSerialization.data(withJSONObject: cfg, options: [.prettyPrinted]),
               (try? data.write(to: url, options: .atomic)) != nil else { return nil }
+        if m.settings.teamEnabled, running[id] == nil { leadHandoff[id] = TeamCoordinator.makeHandoffDir(for: c) }
         var prompt = m.settings.teamEnabled ? systemPrompt(for: c, runtime: rt) : ""
         // 自律組織モード：ユーザーが直接頼んだ依頼（仲間からの依頼ではない）なら、学習からおすすめの組織を選んで伝える
         if orgEnabled, running[id] == nil, let text = rt.lastTurn?.prompt {
@@ -459,6 +464,66 @@ final class TeamCoordinator {
                          allowedTools: allowed,
                          // wait_for_tasks は仲間の作業が終わるまで待つので、MCP の既定のタイムアウトより長くする
                          env: ["MCP_TOOL_TIMEOUT": "2400000"])
+    }
+
+    // MARK: - 受け渡し用のフォルダと、使える AI
+
+    static var handoffRoot: URL { AppPaths.dataDir.appendingPathComponent("handoff", isDirectory: true) }
+
+    /// リーダーの依頼ごとの、受け渡し用のフォルダ（本人だけが開ける。7 日たったら片付ける）
+    static func makeHandoffDir(for c: JellyController) -> URL? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        let dir = handoffRoot.appendingPathComponent("\(f.string(from: Date()))-agent\(c.record.number)-\(UUID().uuidString.prefix(4).lowercased())", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: handoffRoot, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        } catch { return nil }
+        return dir
+    }
+
+    /// このターンで使ってよい受け渡し用のフォルダ（仲間からの依頼ならその依頼の、リーダーならいまの依頼の）
+    func handoffDirs(for id: UUID) -> [URL] {
+        if let tid = running[id], let h = tasks[tid]?.handoff { return [h] }
+        if running[id] == nil, let h = leadHandoff[id] { return [h] }
+        return []
+    }
+
+    /// 空のまま使われなかった受け渡し用のフォルダを片付ける
+    private func dropEmptyHandoff(_ lead: UUID) {
+        guard let h = leadHandoff[lead], !tasks.values.contains(where: { $0.handoff == h }) else { return }
+        if ((try? FileManager.default.contentsOfDirectory(atPath: h.path)) ?? []).isEmpty { try? FileManager.default.removeItem(at: h) }
+        leadHandoff[lead] = nil
+    }
+
+    /// その AI を仲間に使えるか（サブスクリプションでログインしている。API キーの従量課金は許可しているときだけ）
+    func engineUsable(_ e: AgentEngine, wait: Bool) -> (ok: Bool, why: String) {
+        guard let m = manager else { return (false, "") }
+        let s = wait ? EngineAuth.shared.status(e, claudePath: m.settings.claudePath, cliPath: m.cliPath(e)) : EngineAuth.shared.cached(e)
+        guard let s else { return (false, L("確認中…")) }
+        if let why = JellyManager.preflightMessage(e, s, allowAPI: m.settings.allowAPIBilling) { return (false, s.summary.isEmpty ? why : s.summary) }
+        return (true, "")
+    }
+
+    /// リーダーへの案内：使える AI と得意なこと
+    func engineRoster() -> String {
+        AgentEngine.allCases.map { e -> String in
+            let u = engineUsable(e, wait: false)
+            return "- \(e.rawValue)（\(e.displayName)）: " + (u.ok ? e.teamStrengths : L("いまは使えません（%@）", u.why))
+        }.joined(separator: "\n")
+    }
+
+    /// engine の指定を読む（無ければ nil = 自分と同じ AI）。使えない AI なら理由
+    func requestedEngine(_ raw: Any?) -> (AgentEngine?, String?) {
+        guard let r = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !r.isEmpty else { return (nil, nil) }
+        let aliases: [String: AgentEngine] = ["claude": .claude, "anthropic": .claude, "codex": .codex, "chatgpt": .codex, "openai": .codex,
+                                              "gpt": .codex, "gemini": .gemini, "google": .gemini]
+        guard let e = AgentEngine(rawValue: r) ?? aliases[r] else {
+            return (nil, L("engine「%@」は分かりません（claude / codex / gemini）", r))
+        }
+        let u = engineUsable(e, wait: true)
+        return u.ok ? (e, nil) : (nil, L("%@ はいま使えません（%@）。使える AI で頼み直してください:\n%@", e.displayName, u.why, engineRoster()))
     }
 
     /// PC 操作のツールを渡すか：PC 操作がオンで、ユーザー本人が頼んだターン（仲間からの依頼ではない）のときだけ。
@@ -487,6 +552,7 @@ final class TeamCoordinator {
         activeEpisode[c.record.id] = (ep.id, Date(), rec.genome)
         AppLog.write("org: \(ep.id) recommend \(rec.genome.key)\(rec.exploration ? " (explore)" : "") evidence=\(String(format: "%.1f", rec.evidence)) novel=\(rec.novel)")
         return TeamCoordinator.orgPrompt(rec, canCreate: canCreateCount(from: c))
+            + "\n" + L("- 仲間ごとに AI を選べます（members[].engine）。「使える AI」の得意なことで役割を割り振ってください（例: 調べ物は gemini、実装とテストは codex、まとめとレビューは claude）")
     }
 
     static func orgPrompt(_ rec: OrgRecommendation, canCreate: Int) -> String {
@@ -521,6 +587,8 @@ final class TeamCoordinator {
                 "role": ["type": "string", "description": L("役割（例: 調査係、実装係、レビュー係）")],
                 "task": ["type": "string", "description": L("任せる作業（目的・前提・対象・出力形式を含める）")],
                 "after": ["type": "array", "items": ["type": "string"], "description": L("先に終わっている必要がある仲間の名前。その結果がこの人の依頼文に付く")] as [String: Any],
+                "engine": ["type": "string", "enum": AgentEngine.allCases.map(\.rawValue),
+                           "description": L("この仲間が使う AI（claude / codex / gemini。省略すると自分と同じ）。得意なことで選ぶ")] as [String: Any],
             ] as [String: Any]] as [String: Any]] as [String: Any],
             "dissolve_others": ["type": "boolean", "description": L("自律組織で前に作った仲間のうち、今回使わない人を片付ける（既定 true）")],
          ] as [String: Any]] as [String: Any]]
@@ -605,6 +673,7 @@ final class TeamCoordinator {
         guard let m = manager else { return }
         let raw = (args["members"] as? [[String: Any]]) ?? []
         var members: [(name: String, role: String?, task: String, after: [String])] = []
+        var engines: [String: AgentEngine] = [:]
         var seen = Set<String>()
         for r in raw {
             let n = String(((r["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(24))
@@ -614,6 +683,9 @@ final class TeamCoordinator {
             let role = (r["role"] as? String).map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60)) }
             let after = ((r["after"] as? [String]) ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             members.append((n, role?.isEmpty == true ? nil : role, task, after))
+            let (e, engineError) = requestedEngine(r["engine"])
+            if let engineError { reply(engineError, true); return }
+            if let e { engines[n.lowercased()] = e }
         }
         guard !members.isEmpty else { reply(L("members が空です。仲間を使わないなら、form_team を呼ばずに一人で進めてください"), true); return }
         guard members.count < TeamCoordinator.maxTeamSize else {
@@ -657,7 +729,7 @@ final class TeamCoordinator {
             reply(L("新しく作れる仲間はあと %ld 体です（いまの依頼には %ld 体が必要）。人数を減らすか、今いる仲間の名前を使ってください", room, need), true); return
         }
         for mb in members where targets[mb.name.lowercased()] == nil {
-            guard let c = m.spawnTeammate(near: me, name: m.uniqueName(mb.name), orgSpawned: true) else {
+            guard let c = m.spawnTeammate(near: me, name: m.uniqueName(mb.name), orgSpawned: true, engine: engines[mb.name.lowercased()]) else {
                 reply(L("仲間を作れませんでした"), true); return
             }
             link(caller, c.record.id)
@@ -691,7 +763,8 @@ final class TeamCoordinator {
         var roster = mates.map { m -> String in
             let st = manager?.runtime(for: m).map { $0.isRunning ? L("作業中") : L("空き") } ?? "?"
             let direct = isLinked(id, m.record.id) ? L("隣") : L("チーム内")
-            return L("- %@（%@、%@、%@）", m.record.title, m.record.color.name, st, direct)
+            let ai = self.manager?.runtime(for: m)?.effectiveEngine.displayName ?? "Claude"
+            return L("- %@（%@、%@、%@）", m.record.title, m.record.color.name, st, direct) + " · " + ai
         }.joined(separator: "\n")
         if roster.isEmpty { roster = L("- まだ仲間はいません（create_teammate で作れます）") }
         let pcNote = rt.pcControl ? "" : "\n" + L("PC 操作（画面を見てクリック・入力する）は、ユーザーがこのエージェントのチャットで「🖱 PC 操作」をオンにすると使えます。頼まれたらそう伝えてください。")
@@ -702,7 +775,7 @@ final class TeamCoordinator {
         let createNote = canCreate
             ? L("新しく作れる仲間: あと %ld 体", room)
             : L("このエージェントはこれ以上仲間を作れません（上限）。今いる仲間には頼めます。")
-        return L("""
+        let base = L("""
         # Jellyfish チーム
         あなたは Jellyfish AI のデスクトップにいるエージェント「%@」（%@）です。jellyfish MCP サーバーのツールで、線でつながった仲間（同じチーム）と分業できます。
         - list_team: 仲間と状態を見る
@@ -717,6 +790,17 @@ final class TeamCoordinator {
         %@
         """, c.record.title, c.record.color.name, TeamCoordinator.requestMarker,
                  rt.cwd.path.replacingOccurrences(of: home, with: "~"), roster, createNote + pcNote)
+        // 使える AI と得意なこと（仲間ごとに AI を選んで分担する）
+        let engines = L("""
+        仲間ごとに使う AI を選べます（create_teammate / form_team の engine）。それぞれの得意なことで分担してください:
+        %@
+        Claude 以外の仲間は、チームのツール・PC 操作を使えません（頼まれた作業だけをする）。
+        """, engineRoster())
+        // 受け渡し用のフォルダ
+        let handoff = (leadHandoff[id] ?? running[id].flatMap { tasks[$0]?.handoff }).map {
+            L("受け渡し用のフォルダ（この依頼のチームで共有。どの AI の仲間も読み書きできる）: %@\n大きなデータ・途中の成果物はここにファイルで置き、依頼文と結果にはそのパスを書く。最終的な成果物はユーザーの作業フォルダなど頼まれた場所に保存する（受け渡し用のフォルダは 7 日で片付けられる）。", $0.path)
+        } ?? ""
+        return [base, engines, handoff].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     // MARK: - ターンの終了
@@ -726,6 +810,7 @@ final class TeamCoordinator {
         // その実行の接続を閉じる（claude の子孫がブリッジとして残っていても、次のターンでは使えない）
         if let a = authed.removeValue(forKey: agent) { a.conn.close() }
         if running[agent] == nil, let ep = activeEpisode.removeValue(forKey: agent) { endEpisode(ep.id, lead: agent, turn: turn) }
+        if running[agent] == nil { dropEmptyHandoff(agent) }
         if let tid = running[agent] {
             tasks[tid]?.cost = turn.costUSD
             running[agent] = nil
@@ -761,8 +846,11 @@ final class TeamCoordinator {
         let tid = q.removeFirst()
         queues[agent] = q
         guard let t = tasks[tid], !t.isDone else { startNext(agent); return }
-        let prompt = TeamCoordinator.requestMarker + name(t.from) + "]\n" + t.text + TeamCoordinator.requestFooter
+        var prompt = TeamCoordinator.requestMarker + name(t.from) + "]\n" + t.text + TeamCoordinator.requestFooter
             + L("同じチームの「%@」からの依頼です。終わったら、依頼元がそのまま使えるように結果を最終回答としてまとめてください（作ったファイルのパスや要点を含める）。", name(t.from))
+        if let h = t.handoff {
+            prompt += "\n" + L("受け渡し用のフォルダ（チームで共有）: %@\n大きな成果物やデータはここにファイルで置き、結果にはそのパスを書いてください。ほかの仲間が置いたファイルもここにあります。", h.path)
+        }
         running[agent] = tid
         t.status = .running
         t.startedAt = Date()
@@ -885,7 +973,9 @@ final class TeamCoordinator {
          "inputSchema": ["type": "object", "required": ["name"], "properties": [
             "name": ["type": "string", "description": L("仲間の名前（役割がわかる短い名前。例: 調査係、レビュー係）")],
             "task": ["type": "string", "description": L("最初に任せる作業（省略可）")],
-         ]]],
+            "engine": ["type": "string", "enum": AgentEngine.allCases.map(\.rawValue),
+                       "description": L("この仲間が使う AI（claude / codex / gemini。省略すると自分と同じ）。得意なことで選ぶ")],
+         ] as [String: Any]]],
         ["name": "read_transcript",
          "description": L("ユーザーが「🎧 聞き取り」で拾ったシステムの音（会議・動画など）の文字起こしを読む。聞き取り中なら途中まで。since_line を渡すとその行より後だけ返す（リアルタイムの翻訳・要約に使う）。from に仲間の名前を渡すとその仲間の文字起こしを読む。"),
          "inputSchema": ["type": "object", "properties": [
@@ -929,12 +1019,20 @@ final class TeamCoordinator {
                 "you": ["name": me.record.title, "color": me.record.color.name],
                 "teammates": mates.map { c -> [String: Any] in
                     let rt = m.runtime(for: c)
-                    return ["name": c.record.title, "color": c.record.color.name,
-                            "state": c.record.state.rawValue, "busy": rt?.isRunning ?? false,
-                            "linked_directly": isLinked(caller, c.record.id),
-                            "queued_tasks": queues[c.record.id]?.count ?? 0]
+                    var d: [String: Any] = ["name": c.record.title, "color": c.record.color.name,
+                                            "state": c.record.state.rawValue, "busy": rt?.isRunning ?? false,
+                                            "linked_directly": isLinked(caller, c.record.id),
+                                            "queued_tasks": queues[c.record.id]?.count ?? 0,
+                                            "engine": (rt?.effectiveEngine ?? .claude).rawValue]
+                    if let m = rt?.activeModel { d["model"] = m }
+                    return d
                 },
                 "can_create": canCreateCount(from: me),
+                "engines": AgentEngine.allCases.map { e -> [String: Any] in
+                    let u = engineUsable(e, wait: false)
+                    return ["engine": e.rawValue, "name": e.displayName, "available": u.ok, "strengths": e.teamStrengths]
+                },
+                "handoff_dir": handoffDirs(for: caller).first?.path ?? "",
             ])
         case "assign_task":
             guard let toName = args["to"] as? String, let text = (args["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
@@ -957,9 +1055,12 @@ final class TeamCoordinator {
             }
             let raw = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let nm = m.uniqueName(String((raw.isEmpty ? L("仲間") : raw).prefix(24)))
-            guard let c = m.spawnTeammate(near: me, name: nm) else { fail(L("仲間を作れませんでした")); return }
+            let (engine, engineError) = requestedEngine(args["engine"])
+            if let engineError { fail(engineError); return }
+            guard let c = m.spawnTeammate(near: me, name: nm, engine: engine) else { fail(L("仲間を作れませんでした")); return }
             link(caller, c.record.id)
-            var out: [String: Any] = ["name": c.record.title, "color": c.record.color.name]
+            var out: [String: Any] = ["name": c.record.title, "color": c.record.color.name,
+                                      "engine": (m.runtime(for: c)?.effectiveEngine ?? .claude).rawValue]
             if let text = (args["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
                 // 出現アニメーションが落ち着いてから光を送る
                 let t = enqueue(from: caller, to: c.record.id, text: text, delay: 0.5)
@@ -1038,6 +1139,8 @@ final class TeamCoordinator {
         t.after = after
         t.role = role
         t.episode = episode ?? episodeID(for: from)
+        // 受け渡し用のフォルダ：仲間の依頼の中から頼んだならその依頼の、リーダーならいまの依頼の
+        t.handoff = running[from].flatMap { tasks[$0]?.handoff } ?? leadHandoff[from]
         tasks[tid] = t
         AppLog.write("team task \(tid) \(name(from)) → \(name(to))\(after.isEmpty ? "" : " after \(after.joined(separator: ","))")")
         if !after.allSatisfy({ tasks[$0]?.isDone ?? true }) {

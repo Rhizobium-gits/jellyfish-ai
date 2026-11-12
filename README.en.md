@@ -94,6 +94,7 @@ Click the jellyfish in the menu bar, and the top of the menu shows **your Claude
 
 - The email and plan of the signed-in account (e.g. Claude Max 20x)
 - Bars and percentages for this week's usage: the **all models** and **Fable** limits, each with its reset date and time (orange at 75%, red at 90%)
+- **📊 Usage (per AI, last 7 days)**: calls and tokens per model and per account for Claude, ChatGPT (Codex) and Gemini (what Jellyfish ran, using the numbers the CLIs report; counted on this Mac only). For Claude, this week's limit % too
 - When you open the menu, it re-reads them from Claude Code if at least a minute has passed since the last read (`claude auth status` and `claude -p /usage`; `/usage` is a built-in Claude Code command, so no model is called and no tokens are used). It never fetches them periodically in the background
 
 Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and the list of agents, plus settings for Appearance, Size, Screen awareness, 🔑 Accounts & AI, 🧠 Model (default), Execution policy, PC control, Team, 🧬 Autonomous organization, External tools (MCP), Open at login, and 🌐 Language. “About Jellyfish AI” and “Check for updates…” are here too.
@@ -258,15 +259,31 @@ You can choose which AI runs your agents: **Claude (Claude Code), ChatGPT (Codex
 | AI | CLI | Account to sign in with | Rules when running without asking | Features |
 |---|---|---|---|---|
 | Claude | Claude Code | Claude (Pro, Max, etc.) | Auto mode (Claude Code's safety checks stop dangerous operations) | All |
-| ChatGPT | Codex CLI | ChatGPT (Plus, Pro, etc.) | Sandbox (can write only inside the working folder, no network) | Chat, work, continue |
-| Gemini | Gemini CLI | Google account | auto_edit (auto-approves only edits inside the working folder, doesn't run commands) | Chat, work, continue |
+| ChatGPT | Codex CLI | ChatGPT (Plus, Pro, etc.) | Sandbox (can write only inside the working folder, no network) | Chat, work, continue, join teams as a teammate |
+| Gemini | Gemini CLI | Google account | auto_edit (auto-approves only edits inside the working folder, doesn't run commands) | Chat, work, continue, join teams as a teammate |
 
 - **The first time you launch the app**, the “Accounts & AI” screen appears so you can sign in to each AI. For AIs that aren't installed, “How to install…” shows the official install command (Jellyfish doesn't install anything for you)
 - **Later**, add accounts, sign in again with another account, or change the AI you use from the menu bar jellyfish › **🔑 Accounts & AI**. The sign-in status (✓ / ⚠️) is shown there too
 - **You can choose the AI per jellyfish**: “AI” at the top of the chat. Changing it starts a new conversation. Jellyfish that don't pick one follow “AI to use” in the menu. Teammates run on the same AI as the jellyfish that created them
 - Signing in opens each CLI's official sign-in (`claude auth login --claudeai`, `codex login`, Gemini CLI's “Sign in with Google”) in Terminal, and you sign in yourself in the browser. **Jellyfish never receives or stores passwords, tokens or API keys**
-- Team (division of labor), PC control, autonomous organization, external tools (MCP) and the “Automatic” model are Claude only. Codex and Gemini use their CLI's default model
+- Leading a team (asking and creating teammates), PC control, autonomous organization, external tools (MCP) and the “Automatic” model are Claude only. Codex and Gemini jellyfish can join a team as teammates ([Split work by each AI's strengths](#split-work-by-each-ais-strengths)). Codex and Gemini use their CLI's default model
 - Gemini checks whether it trusts a folder and won't run in an untrusted one. Open it with “Open Gemini in this folder” in the chat and trust the folder only if it's one you trust (Jellyfish never skips this check)
+
+### Split work by each AI's strengths
+
+A team lead (Claude) can choose the AI for each teammate and split the work by what each one is good at. The lead's instructions list the AIs you're currently signed in to and can use, along with their strengths and limits, which follow from how Jellyfish runs each one.
+
+| AI | Good roles | Can't |
+|---|---|---|
+| Claude | Lead, combine, review; long multi-step work; running commands; web search; PC control (when allowed); external tools | — |
+| ChatGPT (Codex) | Implementing and fixing code, running tests and builds | Network access (web search, package downloads), writing outside the working folder |
+| Gemini | Research with Google Search and web pages, summarizing and comparing lots of documents or code, writing | Running shell commands |
+
+- Ask something like “split this: research with Gemini, implementation with Codex, summary and review with Claude”, and the lead creates teammates with an AI each through `engine` in `create_teammate` / `form_team` (autonomous organization mode works the same way). You can also link jellyfish whose AI you picked yourself with “AI” at the top of the chat
+- If the lead asks for an AI that can't be used (not installed, not signed in, or still on a pay-as-you-go API key), it gets the reason and the list of AIs it can use, and asks again with another one
+- **Passing data**: for each request to the lead, a **handoff folder** shared by the team is created (under `handoff/` in the data folder, readable only by you), and teammates on every AI are allowed to read and write it (Claude with `--add-dir`, Codex as a writable folder of its sandbox, Gemini with `--include-directories`). Large data and intermediate results go there as files, and requests and results carry their paths. Teammates ordered with `after` also get the earlier members' results in their request
+- Final deliverables are saved where you asked (such as the working folder). Handoff folders are removed at the end of the turn if empty, otherwise after 7 days
+- Each teammate's status line and title show its AI and model. You can see usage per AI under **📊 Usage** in the menu bar
 
 ### No surprise charges
 

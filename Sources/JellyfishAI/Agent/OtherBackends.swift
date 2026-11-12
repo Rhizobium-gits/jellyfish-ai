@@ -147,7 +147,14 @@ final class CodexEventParser: JSONLParser {
             out.append(.toolFinished(isError: failed))
             return out
         case "turn.completed":
-            return [.finished(success: true, result: lastMessage, costUSD: nil, durationMs: nil)]
+            var out: [AgentEvent] = []
+            if let u = o["usage"] as? [String: Any] {
+                func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
+                out.append(.usage(model: nil, input: n("input_tokens"), output: n("output_tokens") + n("reasoning_output_tokens"),
+                                  cached: n("cached_input_tokens")))
+            }
+            out.append(.finished(success: true, result: lastMessage, costUSD: nil, durationMs: nil))
+            return out
         case "turn.failed":
             let m = ((o["error"] as? [String: Any])?["message"] as? String) ?? lastError ?? "turn.failed"
             return [.finished(success: false, result: m, costUSD: nil, durationMs: nil)]
@@ -195,13 +202,19 @@ final class CodexBackend: AgentBackend {
     /// Codex は会話の ID を自分で決める（thread.started で受け取る）
     var assignsSessionID: Bool { true }
 
-    /// 引数（テストあり）。新しい会話は `exec`、続きは `exec resume <id>`。プロンプトは「--」のあと
-    static func arguments(prompt: String, sessionID: String?, model: String?) -> [String] {
+    /// 引数（テストあり）。新しい会話は `exec`、続きは `exec resume <id>`。プロンプトは「--」のあと。
+    /// 受け渡し用のフォルダは、サンドボックスで書けるフォルダ（sandbox_workspace_write.writable_roots）に足す
+    /// （exec resume には --add-dir が無いので、どちらも設定の上書きで渡す）
+    static func arguments(prompt: String, sessionID: String?, model: String?, addDirs: [URL] = []) -> [String] {
         var a = ["exec"]
         if sessionID != nil { a.append("resume") }
         a += ["--json", "--skip-git-repo-check",
               "--config", #"sandbox_mode="workspace-write""#,
               "--config", #"approval_policy="never""#]
+        if !addDirs.isEmpty {
+            let roots = addDirs.map { "\"" + $0.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+            a += ["--config", "sandbox_workspace_write.writable_roots=[" + roots.joined(separator: ",") + "]"]
+        }
         if let m = model, !m.isEmpty { a += ["--model", m] }
         a.append("--")
         if let s = sessionID { a.append(s) }
@@ -213,7 +226,8 @@ final class CodexBackend: AgentBackend {
              onEvent: @escaping (AgentEvent) -> Void, onExit: @escaping (Int32, String) -> Void) throws -> AgentHandle {
         guard !resume || UUID(uuidString: sessionID) != nil else { throw POSIXError(.EINVAL) }
         let m = options.model ?? model
-        let args = CodexBackend.arguments(prompt: prompt, sessionID: resume ? sessionID : nil, model: m == ModelRouter.auto ? nil : m)
+        let args = CodexBackend.arguments(prompt: prompt, sessionID: resume ? sessionID : nil, model: m == ModelRouter.auto ? nil : m,
+                                          addDirs: options.addDirs)
         return try CLIProcess.start(executable: install.url, args: args, cwd: cwd, env: ShellEnvironment.shared.agentEnvironment(),
                                     logDir: logDir, parser: CodexEventParser(onEvent: onEvent), onExit: onExit)
     }
@@ -245,9 +259,19 @@ final class GeminiEventParser: JSONLParser {
             lastError = o["message"] as? String ?? lastError
             return []
         case "result":
+            var out: [AgentEvent] = []
+            // モデルごとの使ったトークン（stats.models）
+            if let models = (o["stats"] as? [String: Any])?["models"] as? [String: Any] {
+                for (m, v) in models.sorted(by: { $0.key < $1.key }) {
+                    guard let u = v as? [String: Any] else { continue }
+                    func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
+                    out.append(.usage(model: m, input: n("input_tokens"), output: n("output_tokens"), cached: n("cached")))
+                }
+            }
             let ok = (o["status"] as? String) == "success"
             let err = ((o["error"] as? [String: Any])?["message"] as? String) ?? lastError
-            return [.finished(success: ok, result: ok ? text : (err ?? text), costUSD: nil, durationMs: nil)]
+            out.append(.finished(success: ok, result: ok ? text : (err ?? text), costUSD: nil, durationMs: nil))
+            return out
         default:
             return []
         }
@@ -275,8 +299,10 @@ final class GeminiBackend: AgentBackend {
 
     /// 引数（テストあり）。会話の ID は Jellyfish が決めて --session-id で渡し、続きは --resume <id>。
     /// プロンプトは --prompt=… の形で渡す（「-」で始まる指示がオプションと間違われない）
-    static func arguments(prompt: String, sessionID: String, resume: Bool, model: String?) -> [String] {
+    static func arguments(prompt: String, sessionID: String, resume: Bool, model: String?, addDirs: [URL] = []) -> [String] {
         var a = ["--output-format", "stream-json", "--approval-mode", "auto_edit"]
+        // 受け渡し用のフォルダもワークスペースに入れる（その中の編集も auto_edit で通る）
+        for d in addDirs { a += ["--include-directories", d.path] }
         a += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
         if let m = model, !m.isEmpty { a += ["--model", m] }
         a.append("--prompt=" + prompt)
@@ -287,7 +313,8 @@ final class GeminiBackend: AgentBackend {
              onEvent: @escaping (AgentEvent) -> Void, onExit: @escaping (Int32, String) -> Void) throws -> AgentHandle {
         guard UUID(uuidString: sessionID) != nil else { throw POSIXError(.EINVAL) }
         let m = options.model ?? model
-        let args = GeminiBackend.arguments(prompt: prompt, sessionID: sessionID, resume: resume, model: m == ModelRouter.auto ? nil : m)
+        let args = GeminiBackend.arguments(prompt: prompt, sessionID: sessionID, resume: resume, model: m == ModelRouter.auto ? nil : m,
+                                           addDirs: options.addDirs)
         return try CLIProcess.start(executable: install.url, args: args, cwd: cwd, env: ShellEnvironment.shared.agentEnvironment(),
                                     logDir: logDir, parser: GeminiEventParser(onEvent: onEvent), onExit: onExit)
     }

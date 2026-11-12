@@ -67,6 +67,10 @@ final class AgentRuntime {
     private(set) var engine: AgentEngine?
     /// 実行の前の確認（ログインしていない・API キーの従量課金など、使わない理由があれば返す）
     var preflight: ((AgentBackend) -> String?)?
+    /// このターンで作業フォルダのほかに使ってよいフォルダ（チームの受け渡し用のフォルダ）
+    var extraDirs: (() -> [URL])?
+    /// 使ったトークン（エンジン・モデルごと。使用量の表示用）
+    var onUsage: ((AgentEngine, String?, Int, Int, Int) -> Void)?
     /// いまのターンの CLI が会話の ID を自分で決めるか（Codex）
     private var adoptSession = false
     /// いまのターンのエンジン
@@ -171,6 +175,8 @@ final class AgentRuntime {
         }
         // デスクトップのアプリとしての振る舞い（毎回同じ文なのでプロンプトキャッシュは崩れない）
         if claude { opts.appendSystemPrompt = [AgentRuntime.desktopNote, opts.appendSystemPrompt].compactMap { $0 }.joined(separator: "\n\n") }
+        // チームの受け渡し用のフォルダ（どの AI でも読み書きできるように渡す）
+        opts.addDirs = extraDirs?() ?? []
         do {
             handle = try backend.run(prompt: text, sessionID: sessionID, resume: resume, cwd: cwd, logDir: dir,
                                      options: opts,
@@ -227,6 +233,9 @@ final class AgentRuntime {
         case .toolFinished:
             pendingTools = max(0, pendingTools - 1)
             if pendingTools == 0 { setTurnState(.thinking) }
+        case .usage(let m, let input, let output, let cached):
+            onUsage?(runningEngine ?? effectiveEngine, m ?? activeModel, input, output, cached)
+            return
         case .finished(let success, let result, let cost, _):
             gotResult = true
             turns[i].result = result

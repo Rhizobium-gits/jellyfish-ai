@@ -12,6 +12,7 @@ func describe(_ e: AgentEvent) -> String {
     case .toolStarted(let n, let s): return "tool \(n) | \(s)"
     case .toolFinished(let err): return "done \(err ? "error" : "ok")"
     case .finished(let ok, let r, _, _): return "finished \(ok) \(r)"
+    case .usage(let m, let i, let o, let c): return "usage \(m ?? "-") \(i)/\(o)/\(c)"
     }
 }
 
@@ -38,6 +39,7 @@ func obj(_ s: String) -> [String: Any] { try! JSONSerialization.jsonObject(with:
             "done ok",
             "tool Edit | Edit: a.md", "done ok",
             "text できました",
+            "usage - 24763/122/24448",
             "finished true できました",
         ])
     }
@@ -170,5 +172,76 @@ func obj(_ s: String) -> [String: Any] { try! JSONSerialization.jsonObject(with:
         #expect(gemini.contains(#"cd '/tmp/it'\''s'"#))
         #expect(!gemini.contains("--skip-trust") && !gemini.contains("yolo"))
         #expect(!EngineLogin.script(.claude, cli: cli, folder: nil, allowAPI: true).contains("unset"))
+    }
+}
+
+
+@Suite struct HandoffAndUsageTests {
+    let dir = URL(fileURLWithPath: "/Users/x/Library/Application Support/JellyfishAI/handoff/20261112-agent1-ab12")
+
+    @Test func handoffFoldersReachEveryEngine() {
+        // Codex：exec resume には --add-dir が無いので、サンドボックスの書けるフォルダとして設定で渡す
+        let c = CodexBackend.arguments(prompt: "p", sessionID: nil, model: nil, addDirs: [dir])
+        #expect(c.contains(#"sandbox_workspace_write.writable_roots=["/Users/x/Library/Application Support/JellyfishAI/handoff/20261112-agent1-ab12"]"#))
+        let r = CodexBackend.arguments(prompt: "p", sessionID: "0199a213-81c0-7800-8aa1-bbab2a035a53", model: nil, addDirs: [dir])
+        #expect(r.contains { $0.hasPrefix("sandbox_workspace_write.writable_roots=") })
+        #expect(Array(r.suffix(3)) == ["--", "0199a213-81c0-7800-8aa1-bbab2a035a53", "p"])
+        // 引用符・バックスラッシュは TOML の文字列としてエスケープする
+        let odd = CodexBackend.arguments(prompt: "p", sessionID: nil, model: nil, addDirs: [URL(fileURLWithPath: #"/tmp/a"b\c"#)])
+        #expect(odd.contains(#"sandbox_workspace_write.writable_roots=["/tmp/a\"b\\c"]"#))
+        // Gemini：ワークスペースに入れる
+        let g = GeminiBackend.arguments(prompt: "p", sessionID: "6c1d3f1e-2b8a-4c55-9d7e-1a2b3c4d5e6f", resume: false, model: nil, addDirs: [dir])
+        #expect(g.contains("--include-directories") && g.contains(dir.path))
+        #expect(g.last == "--prompt=p")
+        #expect(CodexBackend.arguments(prompt: "p", sessionID: nil, model: nil).allSatisfy { !$0.contains("writable_roots") })
+    }
+
+    @Test func tokenUsageFromEachCLI() {
+        let claude = StreamJSONParser(onEvent: { _ in })
+        _ = claude
+        let g = GeminiEventParser(onEvent: { _ in })
+        let line = #"{"type":"result","status":"success","stats":{"total_tokens":150,"input_tokens":120,"output_tokens":30,"cached":20,"models":{"gemini-pro":{"total_tokens":150,"input_tokens":120,"output_tokens":30,"cached":20,"input":100}}}}"#
+        #expect(g.handle(obj(line)).map(describe) == ["usage gemini-pro 120/30/20", "finished true "])
+    }
+
+    @Test func ledgerSumsByEngineModelAndAccount() throws {
+        let f = FileManager.default.temporaryDirectory.appendingPathComponent("jf-usage-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: f) }
+        let l = UsageLedger(url: f)
+        let now = Date()
+        let old = Calendar.current.date(byAdding: .day, value: -10, to: now)!
+        l.add(engine: .claude, model: "claude-opus-5-5", account: "claude#abc", input: 1000, output: 50, cached: 900, now: now)
+        l.add(engine: .claude, model: "claude-opus-5-5", account: "claude#abc", input: 2000, output: 70, cached: 0, now: now)
+        l.add(engine: .codex, model: nil, account: "ChatGPT", input: 300, output: 30, cached: 0, now: now)
+        l.add(engine: .gemini, model: "gemini-pro", account: "Google", input: 10, output: 1, cached: 0, now: old)
+        let rows = l.recent(days: 7, now: now)
+        #expect(rows.map(\.engine) == [.claude, .codex])
+        #expect(rows[0].count == UsageLedger.Count(calls: 2, input: 3000, output: 120, cached: 900))
+        #expect(rows[1].model == "-")
+        #expect(l.recent(days: 30, now: now).count == 3)
+        l.flush()
+        #expect(UsageLedger(url: f).recent(days: 30, now: now).count == 3)
+        #expect(UsageLedger.short(1_234_567) == "1.2M" && UsageLedger.short(45_000) == "45k" && UsageLedger.short(1234) == "1.2k" && UsageLedger.short(12) == "12")
+    }
+
+    @Test func strengthsDescribeWhatEachEngineCanDoHere() {
+        // 動かし方から決まること（Codex はネットワークなし、Gemini はコマンドを実行しない）を案内に書いている
+        #expect(AgentEngine.codex.teamStrengths.contains("ネットワーク"))
+        #expect(AgentEngine.gemini.teamStrengths.contains("コマンド"))
+        #expect(AgentEngine.claude.teamStrengths.contains("リーダー"))
+    }
+}
+
+@Suite struct ClaudeUsageTests {
+    final class Box: @unchecked Sendable { var events: [String] = [] }
+
+    @Test func modelUsageFromResult() async throws {
+        let box = Box()
+        let p = StreamJSONParser(onEvent: { box.events.append(describe($0)) })
+        let line = #"{"type":"result","subtype":"success","is_error":false,"result":"OK","modelUsage":{"claude-haiku-5-5":{"inputTokens":2,"outputTokens":4,"cacheReadInputTokens":11391,"cacheCreationInputTokens":11203}}}"#
+        p.feed(Data((line + "\n").utf8))
+        try await Task.sleep(for: .milliseconds(150))
+        await MainActor.run {}
+        #expect(box.events == ["usage claude-haiku-5-5 22596/4/22594", "finished true OK"])
     }
 }

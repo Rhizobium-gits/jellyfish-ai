@@ -70,6 +70,39 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         if item.button?.image !== img { item.button?.image = img }
     }
 
+    /// 使用量（AI ごと・モデルごと・アカウントごと、直近 7 日）。Claude は今週の上限（％）も
+    private func usageMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: L("📊 使用量（AI ごと・直近 7 日）"), action: nil, keyEquivalent: "")
+        let um = NSMenu()
+        um.autoenablesItems = false
+        let rows = manager.usage.recent(days: 7)
+        let email = ClaudeAccount.shared.snapshot?.account?.email
+        for e in AgentEngine.allCases {
+            let er = rows.filter { $0.engine == e }
+            let st = EngineAuth.shared.cached(e)
+            guard !er.isEmpty || st?.usable == true else { continue }
+            um.addItem(.header(e.displayName + ((st?.usable == true ? st?.account : nil).map { " — " + $0 } ?? "")))
+            if e == .claude, let limits = ClaudeAccount.shared.snapshot?.limits, !limits.isEmpty {
+                um.addItem(.header("   " + limits.map { "\($0.label) \($0.percent)%" }.joined(separator: " · ")))
+            }
+            if er.isEmpty { um.addItem(.header("   " + L("直近 7 日は使っていません"))) }
+            for r in er {
+                let model = r.model == "-" ? L("%@ の既定のモデル", e.cliTitle) : r.model
+                let acct = manager.usageAccountLabel(r.account, engine: e)
+                let who = acct.isEmpty || acct == email || acct == "ChatGPT" || acct == "Google" ? "" : "（\(acct)）"
+                um.addItem(.header("   " + L("%@：%ld 回 · 入力 %@ · 出力 %@ トークン", model, r.count.calls,
+                                              UsageLedger.short(r.count.input), UsageLedger.short(r.count.output)) + who))
+            }
+            if e != .claude { um.addItem(.header("   " + L("残りの枠は、それぞれのサービスの画面で確かめてください"))) }
+            um.addItem(.separator())
+        }
+        if um.items.isEmpty { um.addItem(.header(L("まだ使っていません"))) }
+        um.addItem(.header(L("・Jellyfish が動かした分を、CLI が報告したトークンで数えています（この Mac の中だけ）")))
+        um.addItem(.header(L("・Claude の％は Claude Code の /usage（アカウント全体）")))
+        item.submenu = um
+        return item
+    }
+
     /// アカウントと AI：ログインの状態・使う AI（既定）・ログイン（公式の画面をターミナルで）・API キーでの課金の許可
     private func accountsMenuItem(_ s: AppSettings) -> NSMenuItem {
         let item = NSMenuItem(title: L("🔑 アカウントと AI"), action: nil, keyEquivalent: "")
@@ -164,6 +197,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         ClaudeAccount.shared.refreshIfStale(claudeOverride: s.claudePath)
         AccountMenu.items(ClaudeAccount.shared.snapshot, loading: ClaudeAccount.shared.loading).forEach { menu.addItem($0) }
+        menu.addItem(usageMenuItem())
         if URLRoutes.automationToken != nil {
             menu.addItem(.header(L("⚠️ 自動化モード（JELLYFISH_AUTOMATION=1）：合言葉つきの jellyfish:// で指示の送信なども受け付けています")))
             menu.addItem(.separator())

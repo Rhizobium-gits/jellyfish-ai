@@ -9,6 +9,8 @@ enum AgentEvent {
     case toolStarted(name: String, summary: String)
     case toolFinished(isError: Bool)
     case finished(success: Bool, result: String, costUSD: Double?, durationMs: Int?)
+    /// 使ったトークン（モデルごと。CLI が出したものだけ。model が nil なら CLI の既定のモデル）
+    case usage(model: String?, input: Int, output: Int, cached: Int)
 }
 
 /// ターンごとの実行オプション（クラゲごとにチャット画面から変えられる）
@@ -24,6 +26,9 @@ struct AgentRunOptions {
     var env: [String: String] = [:]
     /// ユーザー設定の MCP サーバー・claude.ai コネクタを読み込まない（--strict-mcp-config）
     var strictMCPConfig = false
+    /// 作業フォルダのほかに読み書きを許すフォルダ（チームの受け渡し用のフォルダ）。
+    /// Claude は --add-dir、Codex はサンドボックスの writable_roots、Gemini は --include-directories
+    var addDirs: [URL] = []
 }
 
 /// 実行中の 1 ターン

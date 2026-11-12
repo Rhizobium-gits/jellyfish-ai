@@ -55,6 +55,19 @@ enum DataJanitor {
             }
         }
         if removed > 0 { AppLog.write("cleanup: removed \(removed) old screen images") }
+        // チームの受け渡し用のフォルダ（中のファイルも含めて 7 日さわっていないもの）
+        let handoff = dataDir.appendingPathComponent("handoff", isDirectory: true)
+        var dropped = 0
+        for d in (try? fm.contentsOfDirectory(at: handoff, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+            var latest = (try? d.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            if let e = fm.enumerator(at: d, includingPropertiesForKeys: [.contentModificationDateKey]) {
+                for case let f as URL in e {
+                    if let m = try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, m > latest { latest = m }
+                }
+            }
+            if latest < cutoff, (try? fm.removeItem(at: d)) != nil { dropped += 1 }
+        }
+        if dropped > 0 { AppLog.write("cleanup: removed \(dropped) old handoff folders") }
     }
 
     /// もういないクラゲ（1.0.0 より前に消したものなど）のフォルダから、生イベントと画面の画像を消す。

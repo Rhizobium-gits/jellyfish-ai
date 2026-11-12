@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 
 /// すべてのクラゲの生成・配置・表示・永続化を管理する。
 /// Phase 2 ではここに AgentRuntime（エージェントごとのプロセス管理）がぶら下がる。
@@ -263,6 +264,39 @@ final class JellyManager {
         EngineAuth.shared.refresh(engines, claudePath: settings.claudePath, cliPaths: cliPaths, relocate: relocate)
     }
 
+    /// AI ごと・モデルごとの使用量（端末内）
+    lazy var usage = UsageLedger(url: store.dir.appendingPathComponent("usage.json"))
+
+    /// 使用量を数えるときのアカウント（メールは保存しない。Claude はメールの短いハッシュ、ほかはサービス名）
+    func usageAccount(_ e: AgentEngine) -> String {
+        switch e {
+        case .claude:
+            // メニューのアカウント欄、なければ起動時に確かめたログインの状態（「メール · プラン」）から
+            let email = ClaudeAccount.shared.snapshot?.account?.email
+                ?? EngineAuth.shared.cached(.claude)?.account?.components(separatedBy: " · ").first { $0.contains("@") }
+            guard let email else { return "claude" }
+            return "claude#" + JellyManager.shortHash(email)
+        case .codex: return "ChatGPT"
+        case .gemini: return "Google"
+        }
+    }
+
+    static func shortHash(_ s: String) -> String {
+        SHA256.hash(data: Data(s.lowercased().utf8)).prefix(3).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 使用量の表に出すアカウントの名前（いまログインしている Claude のアカウントならメール）
+    func usageAccountLabel(_ stored: String, engine: AgentEngine) -> String {
+        let email = ClaudeAccount.shared.snapshot?.account?.email
+            ?? EngineAuth.shared.cached(.claude)?.account?.components(separatedBy: " · ").first { $0.contains("@") }
+        if engine == .claude, stored.hasPrefix("claude#"), let email, stored == "claude#" + JellyManager.shortHash(email) {
+            return email
+        }
+        if stored.hasPrefix("claude#") { return L("別のアカウント（%@）", String(stored.dropFirst("claude#".count))) }
+        if stored == "-" || stored == "claude" { return "" }
+        return stored
+    }
+
     /// 「アカウントと AI」の画面（初めての起動のときにも出す）
     private var accountsWindow: AccountsWindowController?
 
@@ -354,6 +388,12 @@ final class JellyManager {
                                                        backendProvider: { [weak self] e in self?.backend(for: e) })
         runtimes[c.record.id] = rt
         rt.preflight = { [weak self] b in self?.preflight(b) }
+        let rid = c.record.id
+        rt.extraDirs = { [weak self] in self?.team?.handoffDirs(for: rid) ?? [] }
+        rt.onUsage = { [weak self] e, m, i, o, cached in
+            guard let self else { return }
+            self.usage.add(engine: e, model: m, account: self.usageAccount(e), input: i, output: o, cached: cached)
+        }
         rt.defaultEngine = { [weak self] in self?.settings.engine ?? .claude }
         rt.onState = { [weak self, weak c] s in
             c?.setState(s)
@@ -665,7 +705,7 @@ final class JellyManager {
     // MARK: チーム
 
     /// エージェントが create_teammate で仲間を作る：呼んだクラゲの隣に出し、作業フォルダ・モデル・強さを引き継ぐ
-    func spawnTeammate(near parent: JellyController, name: String, orgSpawned: Bool = false) -> JellyController? {
+    func spawnTeammate(near parent: JellyController, name: String, orgSpawned: Bool = false, engine: AgentEngine? = nil) -> JellyController? {
         guard controllers.count < TeamCoordinator.maxAgents else { return nil }
         if settings.allHidden { setAllHidden(false) }
         if parent.record.hidden { setHidden(parent, false) }
@@ -677,8 +717,8 @@ final class JellyManager {
         r.origin = adjacentOrigin(near: parent)
         let c = addController(r)
         if let prt = runtimes[parent.record.id], let rt = runtimes[c.record.id] {
-            // 仲間は作った側と同じ AI で動く
-            rt.changeEngine(prt.engine)
+            // 仲間は、指定がなければ作った側と同じ AI で動く（AI ごとの得意なことで分担するときは engine を指定）
+            rt.changeEngine(engine ?? prt.effectiveEngine)
             rt.changeFolder(prt.cwd)
             rt.model = prt.model
             rt.effort = prt.effort
@@ -918,6 +958,7 @@ final class JellyManager {
         for rt in runtimes.values where rt.isRunning { rt.cancel() }
         for rt in detached where rt.isRunning { rt.cancel() }
         team?.shutdown()
+        usage.flush()
         save()
     }
 

@@ -56,8 +56,11 @@ final class ClaudeCodeBackend: AgentBackend {
         guard UUID(uuidString: sessionID) != nil else { throw POSIXError(.EINVAL) }
         let p = Process()
         p.executableURL = executable
-        var args = ["-p",
-                    "--output-format", "stream-json", "--verbose",
+        var args = ["-p"]
+        // 受け渡し用のフォルダ（--add-dir は値を複数取るので、すぐ後ろに別のオプションが続く位置に置く）
+        let dirs = options.addDirs.map(\.path)
+        if !dirs.isEmpty { args += ["--add-dir"] + dirs }
+        args += ["--output-format", "stream-json", "--verbose",
                     "--permission-mode", permissionMode]
         if install.supportsPermissionPrompts { args += ["--permission-prompts", "none"] }
         args += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
@@ -219,6 +222,15 @@ final class StreamJSONParser {
                 emit(.toolFinished(isError: (c["is_error"] as? Bool) ?? false))
             }
         case "result":
+            // モデルごとの使ったトークン（使用量の表示用）
+            if let mu = obj["modelUsage"] as? [String: Any] {
+                for (m, v) in mu.sorted(by: { $0.key < $1.key }) {
+                    guard let u = v as? [String: Any] else { continue }
+                    func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
+                    let cached = n("cacheReadInputTokens") + n("cacheCreationInputTokens")
+                    emit(.usage(model: m, input: n("inputTokens") + cached, output: n("outputTokens"), cached: cached))
+                }
+            }
             let subtype = obj["subtype"] as? String ?? ""
             let isError = (obj["is_error"] as? Bool) ?? false
             var result = obj["result"] as? String ?? ""

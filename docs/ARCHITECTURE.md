@@ -100,6 +100,10 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 - 子プロセスの環境変数は `ShellEnvironment.agentEnvironment()`（`BillingGuard` が API キーの環境変数を外す）
 - ログイン：`EngineLogin` がデータフォルダに `login-<engine>.command` を書いてターミナルで開く（環境変数を外してから公式のログインを実行）。初めての起動と「🔑 アカウントと AI」から
 
+- **AI ごとの分業**：`create_teammate` / `form_team` の `engine` で仲間の AI を選ぶ（`JellyManager.spawnTeammate(engine:)`）。`TeamCoordinator.engineRoster()` が、使える AI（`EngineAuth` でサブスクリプションのログイン）と `AgentEngine.teamStrengths` をチームの system prompt と `list_team` に出す
+- **受け渡し用のフォルダ**：Claude のリーダーのユーザーのターンごとに `handoff/<日時>-agent<番号>-<4 文字>`（700）を作り（`leadHandoff`）、そのターンの依頼（`TeamTask.handoff`）に引き継ぐ。`AgentRuntime.extraDirs` → `AgentRunOptions.addDirs` で、Claude `--add-dir`・Codex `--config sandbox_workspace_write.writable_roots=[…]`（resume に --add-dir が無いため）・Gemini `--include-directories`。空なら turnEnded で消し、DataJanitor が 7 日で片付ける
+- **使用量**：`AgentEvent.usage(model:input:output:cached:)` を各パーサが出す（Claude は result の modelUsage、Codex は turn.completed の usage、Gemini は result の stats.models）。`UsageLedger`（usage.json、日 × AI × モデル × アカウント）
+
 ## 2.7 表示の言語（Localization/）
 
 - ソースには日本語をそのまま書き、`L("…")` / `L("…%@…", x)` で包む。`L10n.translate` が今の言語の表（`Strings+en.swift`・`Strings+zh.swift`、日本語 → 訳）を引き、無ければ日本語のまま
