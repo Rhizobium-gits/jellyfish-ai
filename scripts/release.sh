@@ -26,7 +26,9 @@ scripts/build.sh --universal --sign
 
 APP="dist/JellyfishAI.app"
 codesign --verify --strict --verbose=2 "$APP"
-codesign -d --verbose=2 "$APP" 2>&1 | grep -q 'flags=.*runtime' || { echo "Hardened Runtime が付いていません" >&2; exit 1; }
+# grep -q に直接つなぐと、pipefail のもとで codesign が SIGPIPE で失敗扱いになることがあるので、いったん変数に受ける
+SIG="$(codesign -d --verbose=2 "$APP" 2>&1)"
+[[ "$SIG" =~ flags=[^[:space:]]*runtime ]] || { echo "Hardened Runtime が付いていません" >&2; exit 1; }
 ARCHS="$(lipo -archs "$APP/Contents/MacOS/JellyfishAI")"
 [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || { echo "universal ではありません: $ARCHS" >&2; exit 1; }
 

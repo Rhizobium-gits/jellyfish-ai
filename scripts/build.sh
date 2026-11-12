@@ -69,7 +69,8 @@ rm -rf "$TMP"
 # --sign：scripts/signing.sh の証明書で署名する（macOS が署名のたびに確認する）。無い・使えないときはアドホック署名
 IDENTITY="${JELLYFISH_SIGN_IDENTITY:-Jellyfish AI Local Signing}"
 SIGNED_WITH="ad-hoc"
-if [[ $SIGN == 1 ]] && security find-identity -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
+IDS="$(security find-identity -p codesigning 2>/dev/null || true)"
+if [[ $SIGN == 1 && "$IDS" == *"\"$IDENTITY\""* ]]; then
   if codesign --force --options runtime --sign "$IDENTITY" --timestamp=none "$APP" >/dev/null 2>&1; then
     SIGNED_WITH="$IDENTITY"
   else

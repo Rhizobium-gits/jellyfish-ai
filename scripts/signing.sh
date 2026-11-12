@@ -17,7 +17,7 @@ set -euo pipefail
 NAME="${JELLYFISH_SIGN_IDENTITY:-Jellyfish AI Local Signing}"
 KC="$HOME/Library/Keychains/login.keychain-db"
 
-exists() { security find-identity -p codesigning "$KC" 2>/dev/null | grep -q "\"${NAME}\""; }
+exists() { local ids; ids="$(security find-identity -p codesigning "$KC" 2>/dev/null || true)"; [[ "$ids" == *"\"${NAME}\""* ]]; }
 
 case "${1:-status}" in
   status)

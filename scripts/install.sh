@@ -70,7 +70,8 @@ echo "Installed: $DEST  (v$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVers
 echo "  ・Launchpad・Spotlight（⌘Space で「Jellyfish」）・Finder の「アプリケーション」から開けます。"
 echo "    Dock に置くなら、アプリケーションフォルダの Jellyfish AI を Dock へドラッグしてください。"
 echo "  ・動いているときにアイコンを開くと、隠したクラゲを出します（1 体もいなければ新しいクラゲを出します）。"
-if codesign -d --verbose=2 "$DEST" 2>&1 | grep -q "^Authority="; then
+SIG="$(codesign -d --verbose=2 "$DEST" 2>&1 || true)"
+if [[ "$SIG" == *$'\nAuthority='* ]]; then
   echo "  ・署名用の証明書で署名しています。前にこの証明書で署名した版で許可していれば、許可はそのまま続きます"
   echo "    （初めてこの証明書の版を入れたときだけ、フォルダ・アクセシビリティ・画面収録をもう一度許可してください）。"
 else
