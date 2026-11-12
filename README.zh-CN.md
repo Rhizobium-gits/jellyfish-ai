@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  这是一款 macOS 应用：AI 智能体常驻在桌面上，每一个都作为独立的 AI 智能体（Claude Code）运行。<br>
+  这是一款 macOS 应用：AI 智能体常驻在桌面上，每一个都作为独立的 AI 智能体（Claude Code・Codex・Gemini）运行。<br>
   <i>macOS 桌面伙伴：屏幕边缘的每个小像素角色都是一个独立的 Claude Code 智能体。<br>按下 ⌘L，输入，然后看着它思考、工作、完成。</i>
 </p>
 
