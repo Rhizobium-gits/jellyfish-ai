@@ -18,7 +18,7 @@
 
 <p align="center">
   デスクトップ上にAIエージェントが常駐し、1 体ずつが独立した AI エージェント（Claude Code・Codex・Gemini）として動く macOS アプリです。<br>
-  <i>A macOS desktop companion: each little pixel character on your screen is an independent AI agent — Claude Code, Codex or Gemini.<br>Press ⌘L, type, and watch it think, work and finish.</i>
+  <i>A macOS desktop companion: each little pixel character on your screen is an independent AI agent — Claude Code, Codex and Gemini.<br>Press ⌘L, type, and watch it think, work and finish.</i>
 </p>
 
 <p align="center">
