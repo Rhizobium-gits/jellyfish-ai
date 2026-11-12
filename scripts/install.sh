@@ -2,6 +2,7 @@
 # この Mac で Jellyfish AI を普通のアプリとして使えるようにする（毎回ターミナルから起動しなくてよくなる）。
 #   scripts/install.sh              ビルドして「アプリケーション」フォルダに入れ、起動する
 #   scripts/install.sh --no-build   いまの dist/JellyfishAI.app をそのまま入れる
+# scripts/signing.sh で署名用の証明書を作ってあれば、それで署名する（ビルドし直しても macOS の許可が続く）。
 # 入れたあとは Launchpad・Spotlight・Finder の「アプリケーション」から開ける。Dock に置くこともできる。
 # 入れる先は /Applications（書き込めなければ ~/Applications）。dist/ の .app は移すので、同じアプリが 2 つ並ばない。
 # 動いている Jellyfish AI は終えてから入れ替える（作業中のエージェントがいるときは何もしない）。
@@ -39,7 +40,7 @@ if running_busy; then
   exit 1
 fi
 
-[[ $BUILD == 1 ]] && scripts/build.sh
+[[ $BUILD == 1 ]] && scripts/build.sh --sign
 [[ "$(bundle_id "$SRC")" == "$BUNDLE_ID" ]] || { echo "$SRC がありません（scripts/build.sh でビルドしてください）" >&2; exit 1; }
 # 入れ替える先に別のアプリがあれば触らない
 if [[ -e "$DEST" && "$(bundle_id "$DEST")" != "$BUNDLE_ID" ]]; then
@@ -69,9 +70,14 @@ echo "Installed: $DEST  (v$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVers
 echo "  ・Launchpad・Spotlight（⌘Space で「Jellyfish」）・Finder の「アプリケーション」から開けます。"
 echo "    Dock に置くなら、アプリケーションフォルダの Jellyfish AI を Dock へドラッグしてください。"
 echo "  ・動いているときにアイコンを開くと、隠したクラゲを出します（1 体もいなければ新しいクラゲを出します）。"
-echo "  ・PC 操作・画面の添付を使っているなら、システム設定 › プライバシーとセキュリティ の「アクセシビリティ」"
-echo "    「画面収録」で Jellyfish AI をいったん外して（−）、もう一度許可してください（アドホック署名のため、"
-echo "    ビルドし直すと macOS は別のアプリとみなします）。"
+if codesign -d --verbose=2 "$DEST" 2>&1 | grep -q "^Authority="; then
+  echo "  ・署名用の証明書で署名しています。前にこの証明書で署名した版で許可していれば、許可はそのまま続きます"
+  echo "    （初めてこの証明書の版を入れたときだけ、フォルダ・アクセシビリティ・画面収録をもう一度許可してください）。"
+else
+  echo "  ・PC 操作・画面の添付を使っているなら、システム設定 › プライバシーとセキュリティ の「アクセシビリティ」"
+  echo "    「画面収録」で Jellyfish AI をいったん外して（−）、もう一度許可してください（アドホック署名のため、"
+  echo "    ビルドし直すと macOS は別のアプリとみなします。scripts/signing.sh create で証明書を作ると続くようになります）。"
+fi
 settings="$HOME/Library/Application Support/JellyfishAI/settings.json"
 if [[ "$(plutil -extract launchAtLogin raw "$settings" 2>/dev/null || true)" == "true" ]]; then
   echo "  ・アプリの場所が変わったので、ログイン時に起動しなくなっていたら、メニューバーのクラゲ ›"

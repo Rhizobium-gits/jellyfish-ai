@@ -22,7 +22,7 @@ if [[ $PUBLISH == 1 ]]; then
 fi
 
 scripts/test.sh
-scripts/build.sh --universal
+scripts/build.sh --universal --sign
 
 APP="dist/JellyfishAI.app"
 codesign --verify --strict --verbose=2 "$APP"

@@ -93,7 +93,7 @@ Click the jellyfish in the menu bar, and the top of the menu shows **your Claude
 - Bars and percentages for this week's usage: the **all models** and **Fable** limits, each with its reset date and time (orange at 75%, red at 90%)
 - When you open the menu, it re-reads them from Claude Code if at least a minute has passed since the last read (`claude auth status` and `claude -p /usage`; `/usage` is a built-in Claude Code command, so no model is called and no tokens are used). It never fetches them periodically in the background
 
-Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and the list of agents, plus settings for Appearance, Size, Screen awareness, Execution policy, PC control, Team, 🧬 Autonomous organization, External tools (MCP), Open at login, and 🌐 Language. “About Jellyfish AI” and “Check for updates…” are here too.
+Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and the list of agents, plus settings for Appearance, Size, Screen awareness, 🧠 Model (default), Execution policy, PC control, Team, 🧬 Autonomous organization, External tools (MCP), Open at login, and 🌐 Language. “About Jellyfish AI” and “Check for updates…” are here too.
 
 ## What it can do
 
@@ -101,7 +101,7 @@ Below that, you'll find New jellyfish, Hide / Show jellyfish, past sessions, and
 - **Its movement shows its state**: thinking, working (running a tool), done, error, and canceled are shown in step with Claude Code's actual events. Once done, it stops moving and uses almost no CPU
 - **Parallel and independent**: each jellyfish has its own session, working folder, history, and process. If one fails, the others are unaffected
 - **Tap for results and follow-ups**: read the result in the chat window and keep giving instructions in the same session. The window is a normal Mac window (minimize, full screen, resize freely)
-- **Model and thinking effort** can be switched per jellyfish from the chat (`--model` / `--effort`)
+- **Pick the model**: at the top of the chat, choose per jellyfish between **🤖 Automatic** (per request: Haiku for short, simple requests, Sonnet for typical ones, Opus for heavy ones; the heaviest requests use Fable only while this week's Fable usage is below 75%) and **Fable / Opus / Sonnet / Haiku**. In Automatic, the status line shows the chosen model and why. Thinking effort (`--effort`) is on the same row. Jellyfish that don't pick a model follow **🧠 Model (default)** in the menu bar
 - **See your usage**: the menu bar jellyfish shows your account and this week's usage (all models, Fable) as bars
 - **Works while looking at your screen**: when you clearly point at the screen, as in “this screen”, “the error that's showing”, or “screenshot”, it captures the screen at send time and passes it along (Jellyfish's own windows are not captured, and an ordinary instruction like “show me the list” doesn't trigger a capture; you can also switch to “Attach every time” / “Don't attach” in the chat). Images are scaled down to at most 1568px on the long side before sending, so each one costs about 1,800 tokens (about 40% of what it would at 2560px)
 - **External tools only when named**: the MCP servers configured in Claude Code (Figma, Blender, etc.) and claude.ai connectors are loaded only when your instruction mentions them by name. Not loading them the rest of the time saves about 4,800 tokens per call and makes startup faster
@@ -264,6 +264,7 @@ cd jellyfish-ai
 scripts/install.sh          # build, install to the Applications folder, and launch
 ```
 
+- Create a signing certificate with `scripts/signing.sh create` first, and macOS permissions (folders, Screen Recording, Accessibility) carry over when you reinstall ([Good to know](#good-to-know))
 - Once installed with `scripts/install.sh`, you can open it without Terminal like any other app. It quits the running Jellyfish AI before replacing it (if any agent is working, it does nothing)
 - To build only, use `scripts/build.sh` (→ `dist/JellyfishAI.app`, for this Mac's CPU); to run the tests, use `scripts/test.sh` (swift test)
 - The app icon is made by fitting `Resources/AppIcon.png` (a 1024px square) into the rounded frame of macOS icons. Replace it and rebuild to change the icon
@@ -286,7 +287,8 @@ scripts/install.sh          # build, install to the Applications folder, and lau
 
 - Because ⌘L is used globally, it conflicts with jumping to the address bar in browsers. While an app whose bundle ID is listed in `hotKeyPassthroughApps` in `settings.json` is in front, ⌘L is passed back to that app. If another app is already using ⌘L, it switches to ⌃⌥L
 - Quitting the app interrupts running agents (they're kept as “interrupted” at the next launch)
-- Because the app is ad-hoc signed, macOS treats it as a different app when you replace it with a new version (or rebuild it). For Screen Recording and Accessibility, remove Jellyfish AI (−) in System Settings once and allow it again
+- The released .app is ad-hoc signed, so when you replace it with a new version macOS treats it as a different app and asks again for folder (Desktop, Documents, …), Screen Recording and Accessibility access. For Screen Recording and Accessibility, remove Jellyfish AI (−) in System Settings once and allow it again
+- If you install from source, create a Jellyfish-only signing certificate (self-signed) with `scripts/signing.sh create` first. `scripts/install.sh` then signs with it, and **a permission you grant once stays granted** even after rebuilding (and you won't be asked again each time you add a jellyfish). The private key is imported as non-exportable, and macOS asks you to confirm each time the key is used for signing. Check it with `scripts/signing.sh status`, remove it with `delete`
 
 ## Where data is stored
 

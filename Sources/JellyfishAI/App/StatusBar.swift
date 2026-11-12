@@ -273,6 +273,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         fps.submenu = fpsMenu
         menu.addItem(fps)
 
+        // クラゲごとにチャットで選んでいないときのモデル
+        let modelItem = NSMenuItem(title: L("🧠 モデル（既定）: %@", manager.defaultModelName), action: nil, keyEquivalent: "")
+        let mm = NSMenu()
+        mm.autoenablesItems = false
+        let choices: [(String, String)] = [(L("🤖 自動（依頼に合わせて選ぶ）"), ModelRouter.auto), (L("Claude Code に任せる"), "")]
+            + ModelRouter.models.map { ($0.label, $0.value) }
+        for (label, value) in choices {
+            mm.addItem(ClosureMenuItem(label, checked: s.model == value) { [weak self] in self?.manager.setDefaultModel(value) })
+        }
+        mm.addItem(.separator())
+        mm.addItem(.header(L("・クラゲごとのモデルはチャットの上の段で選べる（こちらは選んでいないクラゲの既定）")))
+        mm.addItem(.header(L("・自動：短い・簡単な依頼は Haiku、ふつうは Sonnet、重い依頼は Opus")))
+        mm.addItem(.header(L("　いちばん重い依頼は Fable（今週の Fable の使用量が %ld%% 未満のときだけ）", ModelRouter.fableLimit)))
+        modelItem.submenu = mm
+        menu.addItem(modelItem)
+
         // 実際に付与している権限を確認できるように
         let policy = NSMenuItem(title: L("実行ポリシー"), action: nil, keyEquivalent: "")
         let pm = NSMenu()

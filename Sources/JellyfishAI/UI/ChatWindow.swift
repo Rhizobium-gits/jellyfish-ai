@@ -177,14 +177,12 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     private var inputHeight: NSLayoutConstraint!
     private var attachRow: NSStackView?
 
-    /// 選べるモデル（Claude Code の --model に渡す値。エイリアスは常に最新版を指す）
-    static var models: [(label: String, value: String?)] { [
-        (L("モデル: 既定"), nil),
-        ("Fable 5.2", "fable"),
-        ("Opus 5.5", "opus"),
-        ("Sonnet 5.5", "sonnet"),
-        ("Haiku 5.5", "claude-haiku-5-5"),
-    ] }
+    /// 選べるモデル（Claude Code の --model に渡す値。エイリアスは常に最新版を指す）。
+    /// 「自動」は依頼ごとに ModelRouter が選ぶ。nil はメニューバーの「🧠 モデル（既定）」に従う
+    static var models: [(label: String, value: String?)] {
+        [(L("🤖 自動（依頼に合わせて選ぶ）"), ModelRouter.auto), (L("既定のモデル"), nil)]
+            + ModelRouter.models.map { ($0.label, Optional($0.value)) }
+    }
     /// 考える強さ（--effort）
     static var efforts: [(label: String, value: String?)] { [
         (L("強さ: 既定"), nil),
@@ -275,7 +273,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         terminalButton.action = #selector(openInTerminal)
         terminalButton.toolTip = L("同じセッションをターミナルの claude --resume で開く")
 
-        let titleRow = NSStackView(views: [dot, titleLabel, NSView(), renameButton, retryButton, cancelButton])
+        // モデルと強さは、ほかのボタンに押されて見えなくならないよう上の段に置く
+        let titleRow = NSStackView(views: [dot, titleLabel, NSView(), modelPopup, effortPopup, renameButton, retryButton, cancelButton])
         titleRow.orientation = .horizontal
         titleRow.spacing = 8
         let infoRow = NSStackView(views: [stateLabel])
@@ -305,9 +304,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         attachLabel.textColor = .secondaryLabelColor
         attachLabel.lineBreakMode = .byTruncatingMiddle
         effortPopup.action = #selector(effortChanged)
-        modelPopup.toolTip = L("このクラゲが使うモデル（次の指示から反映）")
+        modelPopup.toolTip = L("このクラゲが使うモデル。自動は依頼ごとに Haiku・Sonnet・Opus・Fable から選ぶ。既定はメニューバーの「🧠 モデル（既定）」に従う（次の指示から反映）")
         effortPopup.toolTip = L("考える強さ（--effort。次の指示から反映）")
-        let controlsRow = NSStackView(views: [modelPopup, effortPopup, screenPopup, attachButton, pcButton, listenButton, folderButton, NSView(), terminalButton])
+        let controlsRow = NSStackView(views: [screenPopup, attachButton, pcButton, listenButton, folderButton, NSView(), terminalButton])
         controlsRow.orientation = .horizontal
         controlsRow.spacing = 6
         // 幅が足りないときはウィンドウを広げず、フォルダ名・ポップアップの文字を省略して縮める
@@ -317,7 +316,13 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         let minFolder = folderButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 96)
         minFolder.priority = .init(255)
         minFolder.isActive = true
-        for p in [modelPopup, effortPopup, screenPopup] { p.setContentCompressionResistancePriority(.init(240), for: .horizontal) }
+        screenPopup.setContentCompressionResistancePriority(.init(240), for: .horizontal)
+        for p in [modelPopup, effortPopup] { p.setContentCompressionResistancePriority(.init(760), for: .horizontal) }
+        titleLabel.setContentCompressionResistancePriority(.init(200), for: .horizontal)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        // 長い作業フォルダの名前は真ん中を省いて、ほかのボタンを押し出さない
+        folderButton.setContentCompressionResistancePriority(.init(220), for: .horizontal)
+        (folderButton.cell as? NSButtonCell)?.lineBreakMode = .byTruncatingMiddle
         terminalButton.setContentCompressionResistancePriority(.init(260), for: .horizontal)
 
         configureScrollable(transcript)
@@ -476,7 +481,11 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         var st = "\(r.title) · \(r.state.label)"
         if running, let a = runtime.activity { st += " — \(a)" }
         if capturing { st = L("%@ · 📷 画面を取り込んでいます…", r.title) }
-        if let m = runtime.activeModel { st += "  ·  \(m)" }
+        if let c = runtime.autoChoice {
+            st += "  ·  🤖 " + L("自動: %@（%@）", ModelRouter.displayName(c.model), c.reason)
+        } else if let m = runtime.activeModel {
+            st += "  ·  \(m)"
+        }
         if let p = manager?.team?.pendingDescription(for: r.id) { st += "  ·  \(p)" }
         // 線でつながった仲間（この人たちに分担を頼める）
         let mates = (manager?.settings.teamEnabled ?? false) ? (manager?.team?.teammateNames(for: r.id) ?? []) : []
@@ -496,7 +505,9 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         }
         if let l = manager?.listeningStatus(jelly) { st = "\(r.title) · " + l }
         screenPopup.selectItem(at: ScreenMode.allCases.firstIndex(of: manager?.settings.screenMode ?? .auto) ?? 0)
-        modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 0)
+        // 「既定のモデル」の項目に、いまの既定（メニューの設定）を書く
+        modelPopup.item(at: 1)?.title = L("既定（%@）", manager?.defaultModelName ?? L("Claude Code に任せる"))
+        modelPopup.selectItem(at: AgentChatController.models.firstIndex { $0.value == runtime.model } ?? 1)
         effortPopup.selectItem(at: AgentChatController.efforts.firstIndex { $0.value == runtime.effort } ?? 0)
         effortPopup.isEnabled = manager?.supportsEffort ?? true
         let listening = manager?.isListening(jelly) ?? false
@@ -780,6 +791,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     @objc private func modelChanged() {
         runtime.model = AgentChatController.models[max(0, modelPopup.indexOfSelectedItem)].value
+        if runtime.model == ModelRouter.auto { manager?.refreshUsageForAutoModel() }
+        refresh()
         window.makeFirstResponder(input)
     }
 

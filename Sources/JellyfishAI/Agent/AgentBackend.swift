@@ -38,6 +38,8 @@ protocol AgentHandle: AnyObject {
 /// このプロトコルを実装すれば同じクラゲで動かせる。
 protocol AgentBackend {
     var displayName: String { get }
+    /// クラゲごとの指定が無いときに使うモデル（設定の model。nil = Claude Code の既定、"auto" = 自動）
+    var defaultModel: String? { get }
     /// 実際に適用される権限ポリシーの説明（ユーザーが確認できるように UI に出す）
     var policyDescription: String { get }
 

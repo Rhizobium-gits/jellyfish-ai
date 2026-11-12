@@ -60,6 +60,27 @@ final class JellyManager {
 
     static let languageChanged = Notification.Name("JellyfishLanguageChanged")
 
+    /// メニューバーの「🧠 モデル（既定）」の名前（クラゲごとに選んでいないときに使うモデル）
+    var defaultModelName: String { JellyManager.modelSettingName(settings.model) }
+
+    static func modelSettingName(_ m: String) -> String {
+        if m.isEmpty { return L("Claude Code に任せる") }
+        if m == ModelRouter.auto { return L("🤖 自動") }
+        return ModelRouter.displayName(m)
+    }
+
+    /// 既定のモデル（設定の model）を変える。"" = Claude Code に任せる、"auto" = 自動
+    func setDefaultModel(_ m: String) {
+        updateSettings { $0.model = m }
+        if m == ModelRouter.auto { refreshUsageForAutoModel() }
+        for (_, chat) in chats { chat.refresh() }
+    }
+
+    /// 「自動」が Fable を使ってよいか決めるのに、今週の使用量を読んでおく（1 分以内に読んでいれば何もしない。モデルは呼ばない）
+    func refreshUsageForAutoModel() {
+        ClaudeAccount.shared.refreshIfStale(claudeOverride: settings.claudePath)
+    }
+
     /// 表示の言語を変える。開いているチャットは作り直す（ボタンや案内の文字を新しい言語にする）
     func setLanguage(_ lang: AppLanguage) {
         guard lang != settings.language else { return }

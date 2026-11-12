@@ -259,3 +259,34 @@ import Testing
         }
     }
 }
+
+@Suite struct ModelRouterTests {
+    @Test func picksByTheWeightOfTheRequest() {
+        #expect(ModelRouter.choose("今日の日付を教えて", fableUsedPercent: 10).model == "claude-haiku-5-5")
+        #expect(ModelRouter.choose("what time is it in Tokyo?", fableUsedPercent: 10).model == "claude-haiku-5-5")
+        #expect(ModelRouter.choose("このアプリのバグを直して", fableUsedPercent: 10).model == "sonnet")
+        #expect(ModelRouter.choose("今日の日付を教えて", attachments: true, fableUsedPercent: 10).model == "sonnet")
+        // コード・設計・テストが重なる依頼は重い
+        let heavy = "認証まわりの設計を見直して、実装を直し、テストも追加して"
+        #expect(ModelRouter.choose(heavy, fableUsedPercent: 10).model == "fable")
+        #expect(ModelRouter.choose("Redesign the sync architecture, implement it and add tests", fableUsedPercent: 10).model == "fable")
+    }
+
+    @Test func avoidsFableWhenItsWeeklyLimitIsHighOrUnknown() {
+        let heavy = "認証まわりの設計を見直して、実装を直し、テストも追加して"
+        #expect(ModelRouter.choose(heavy, fableUsedPercent: 75).model == "opus")
+        #expect(ModelRouter.choose(heavy, fableUsedPercent: 91).model == "opus")
+        #expect(ModelRouter.choose(heavy, fableUsedPercent: nil).model == "opus")
+        #expect(ModelRouter.choose(heavy, fableUsedPercent: 91).reason.contains("91"))
+    }
+
+    @Test func namesAndValues() {
+        #expect(ModelRouter.displayName("opus") == "Opus 5.5")
+        #expect(ModelRouter.displayName("claude-sonnet-5-5") == "Sonnet 5.5")
+        #expect(ModelRouter.displayName("claude-haiku-5-5") == "Haiku 5.5")
+        // 「自動」はチャットの最初、「既定」はその次
+        #expect(AgentChatController.models[0].value == ModelRouter.auto)
+        #expect(AgentChatController.models[1].value == nil)
+        #expect(Set(AgentChatController.models.compactMap(\.value)).count == AgentChatController.models.count - 1)
+    }
+}

@@ -31,6 +31,8 @@ final class AgentRuntime {
     private(set) var activity: String?
     /// 実際に使われたモデル（Claude Code の init イベントから）
     private(set) var activeModel: String?
+    /// モデルが「自動」のときに、このターンで選んだモデルと理由
+    private(set) var autoChoice: ModelRouter.Choice?
     private(set) var permissionMode: String?
     private var cachedSessionFile: URL?
     private var cachedTitle: (date: Date, title: String)?
@@ -122,6 +124,16 @@ final class AgentRuntime {
 
         let resume = sessionStarted
         var opts = AgentRunOptions(model: model, effort: effort)
+        // 「自動」：依頼ごとに合うモデルを選ぶ（クラゲの指定が無ければ設定の既定に従う）
+        if (model ?? backend.defaultModel) == ModelRouter.auto {
+            let attached = text.contains(AgentChatController.attachMarker) || text.contains(ScreenContext.marker)
+            let typed = AgentChatController.typedPrompts([text]).first ?? text
+            let c = ModelRouter.choose(typed, attachments: attached, fableUsedPercent: ClaudeAccount.shared.fableUsedPercent)
+            opts.model = c.model
+            autoChoice = c
+        } else {
+            autoChoice = nil
+        }
         if let t = teamConfig?() {
             opts.mcpConfig = t.mcpConfig
             opts.appendSystemPrompt = t.systemPrompt
@@ -145,7 +157,7 @@ final class AgentRuntime {
                                      options: opts,
                                      onEvent: { [weak self] e in self?.handle(e) },
                                      onExit: { [weak self] status, err in self?.exited(status: status, stderr: err) })
-            AppLog.write("agent \(agentID.uuidString.prefix(8)) run resume=\(resume) model=\(model ?? "-") effort=\(effort ?? "-") external=\(opts.strictMCPConfig ? "off" : externalLoaded.joined(separator: ",")) cwd=\(cwd.path)")
+            AppLog.write("agent \(agentID.uuidString.prefix(8)) run resume=\(resume) model=\(model ?? "-")\(autoChoice.map { "→\($0.model)" } ?? "") effort=\(effort ?? "-") external=\(opts.strictMCPConfig ? "off" : externalLoaded.joined(separator: ",")) cwd=\(cwd.path)")
         } catch {
             finish(.error, error: L("起動に失敗しました: %@", error.localizedDescription))
         }

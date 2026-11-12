@@ -43,6 +43,9 @@ final class ClaudeAccount {
 
     static let maxAge: TimeInterval = 60
 
+    /// Fable の今週の使用量（％）。まだ読んでいなければ nil（モデルの「自動」で使う）
+    var fableUsedPercent: Int? { snapshot?.limits.first { $0.label.contains("Fable") }?.percent }
+
     /// メインスレッドから呼ぶ
     func refreshIfStale(claudeOverride: String?) {
         if loading { return }
