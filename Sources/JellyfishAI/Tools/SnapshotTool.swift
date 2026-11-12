@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 enum SnapshotTool {
     static func handles(_ args: [String]) -> Bool {
         args.contains("--sheet") || args.contains("--strip") || args.contains("--icon") || args.contains("--settle-test") || args.contains("--status-frames")
-            || args.contains("--pixel-sheet") || args.contains("--account-menu")
+            || args.contains("--pixel-sheet") || args.contains("--account-menu") || args.contains("--chat-sample")
     }
 
     static func run(_ args: [String]) -> Int32 {
@@ -36,8 +36,101 @@ enum SnapshotTool {
         if let out = value("--icon") { return icon(out, source: value("--icon-source")) }
         if let out = value("--status-frames") { return statusFrames(out) }
         if let out = value("--account-menu") { return accountMenu(out) }
+        if let out = value("--chat-sample") { return chatSample(out, dark: value("--bg") == "dark") }
         if args.contains("--settle-test") { return settleTest() }
         return 1
+    }
+
+    // MARK: - チャットの表示の見本（表・数式・図・コード）。画面の外の窓で描いて PNG に（モデルは呼ばない・前面に出さない）
+
+    static func chatSample(_ out: String, dark: Bool) -> Int32 {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        app.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        let size = NSRect(x: 0, y: 0, width: 760, height: 1900)
+        let w = NSWindow(contentRect: size.offsetBy(dx: -6000, dy: -6000), styleMask: [.borderless], backing: .buffered, defer: false)
+        let bg = NSVisualEffectView(frame: size)
+        bg.material = .windowBackground
+        bg.state = .active
+        w.contentView = bg
+        let v = ChatTranscriptView(frame: size)
+        v.autoresizingMask = [.width, .height]
+        bg.addSubview(v)
+        w.orderFrontRegardless()
+        let answer = """
+        ## 四季の詩の比べ方
+
+        | 季節 | 題 | 字数 | 評価 |
+        |---|---|---:|:---:|
+        | 春 | 霞の朝 | 31 | ★★★ |
+        | 夏 | 蝉しぐれ | 28 | ★★☆ |
+        | 秋 | 月の舟 | 33 | ★★★ |
+        | 冬 | 雪明かり | 30 | ★★☆ |
+
+        点数は $s = \\frac{1}{n}\\sum_{i=1}^{n} w_i x_i$ で、重みは $\\sum w_i = 1$ です。
+
+        $$
+        \\int_0^{2\\pi} \\sin^2\\theta\\,d\\theta = \\pi, \\qquad e^{i\\pi} + 1 = 0
+        $$
+
+        ```mermaid
+        pie title 票の割合
+          "春" : 34
+          "夏" : 18
+          "秋" : 31
+          "冬" : 17
+        ```
+
+        ```mermaid
+        xychart-beta
+          title "季節ごとの点数"
+          x-axis ["春", "夏", "秋", "冬"]
+          y-axis "点数" 0 --> 100
+          bar [82, 64, 88, 70]
+          line [82, 64, 88, 70]
+        ```
+
+        ```mermaid
+        flowchart LR
+          A[依頼] --> B{分担する？}
+          B -- はい --> C[仲間を作る]
+          B -- いいえ --> D[一人で]
+          C --> E[レビュー係が選ぶ]
+        ```
+
+        ```swift
+        let best = poems.max { $0.score < $1.score }
+        print(best?.title ?? "なし")
+        ```
+
+        値段の $5 と $10 は数式になりません。詳しくは [Mermaid の書き方](https://mermaid.js.org) を見てください。
+        """
+        let payload: [String: Any] = [
+            "accent": "#D97757",
+            "items": [
+                ["id": "u", "kind": "user", "caption": L("あなた"), "captionStyle": "muted", "text": "四季の詩を比べて、表・数式・グラフで見せて"],
+                ["id": "t", "kind": "tool", "text": "⚙︎ Bash: python3 score.py"],
+                ["id": "a", "kind": "assistant", "caption": "Claude", "captionColor": "#D97757", "text": answer],
+            ],
+            "labels": ["copy": L("コピー"), "copied": L("コピーしました"), "diagramFailed": L("図にできませんでした（Mermaid の書き方を確かめてください）")],
+        ]
+        v.update(payload, scrollToEnd: false)
+        let until = Date().addingTimeInterval(6)
+        while Date() < until { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+        var done = false
+        var code: Int32 = 1
+        v.web.takeSnapshot(with: nil) { img, err in
+            if let img, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) {
+                code = (try? png.write(to: URL(fileURLWithPath: out))) != nil ? 0 : 1
+            } else {
+                FileHandle.standardError.write(Data("snapshot failed: \(String(describing: err))\n".utf8))
+            }
+            done = true
+        }
+        let limit = Date().addingTimeInterval(10)
+        while !done && Date() < limit { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+        return code
     }
 
     // MARK: -

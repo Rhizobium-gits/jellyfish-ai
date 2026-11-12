@@ -152,50 +152,75 @@ final class ChatMediaCache {
         return nil
     }
 
-    /// チャットに入れる 1 つぶん（画像は押すと開く）。まだできていなければ「読み込み中」の 1 行
-    /// autoWeb：Web のページを自動で読みに行ってよいか（ユーザー自身が書いた URL だけ true）
-    func attachment(_ r: ChatMedia.Ref, webPreviews: Bool, autoWeb: Bool = true) -> NSAttributedString? {
-        let small: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.secondaryLabelColor]
+    /// チャットに出す 1 つぶん（会話の表示のページに渡す）。まだできていなければ、名前とリンクだけ
+    struct Preview {
+        var link: String
+        var label: String
+        var thumbKey: String?
+        var thumbData: String?
+        /// 押したときだけ読みに行く Web ページ（「表紙を見る」のリンク）
+        var previewLink: String?
+        var host: String?
+    }
+
+    /// autoWeb：Web のページを自動で読みに行ってよいか（ユーザー自身が打った URL だけ true）
+    func preview(_ r: ChatMedia.Ref, webPreviews: Bool, autoWeb: Bool = true) -> Preview? {
         switch r.kind {
         case .image, .pdf:
-            let name = r.url.lastPathComponent
-            guard let img = thumbnail(r.url) else {
-                return NSAttributedString(string: (r.kind == .pdf ? "📄 " : "🖼 ") + name + "\n", attributes: small.merging([.link: r.url]) { $1 })
+            let label = (r.kind == .pdf ? "📄 " : "🖼 ") + r.url.lastPathComponent
+            var p = Preview(link: r.url.absoluteString, label: label)
+            if let img = thumbnail(r.url) {
+                let k = key(r.url)
+                p.thumbKey = k
+                p.thumbData = dataURL(k, img)
             }
-            let out = NSMutableAttributedString(attributedString: ChatMediaCache.imageAttachment(img, link: r.url))
-            out.append(NSAttributedString(string: "\n" + (r.kind == .pdf ? "📄 " : "🖼 ") + name + "\n", attributes: small.merging([.link: r.url]) { $1 }))
-            return out
+            return p
         case .web:
             guard webPreviews else { return nil }
+            let host = r.url.host ?? r.url.absoluteString
             lock.lock()
             let allowed = autoWeb || allowedWeb.contains(r.url) || links[r.url] != nil
             lock.unlock()
             guard allowed else {
                 // 押したときだけ読みに行く
-                guard let p = ChatMediaCache.previewLink(for: r.url) else { return nil }
-                let out = NSMutableAttributedString(string: "🔗 " + (r.url.host ?? r.url.absoluteString) + "  ", attributes: small.merging([.link: r.url]) { $1 })
-                out.append(NSAttributedString(string: L("表紙を見る"), attributes: small.merging([.link: p, .toolTip: L("このページを読みに行って、表紙の画像とタイトルを出します")]) { $1 }))
-                out.append(NSAttributedString(string: "\n", attributes: small))
-                return out
+                guard let pl = ChatMediaCache.previewLink(for: r.url) else { return nil }
+                return Preview(link: r.url.absoluteString, label: "🔗 " + host, previewLink: pl.absoluteString, host: host)
             }
             guard let l = link(r.url) else { return nil }
-            let out = NSMutableAttributedString()
-            if let img = l.image { out.append(ChatMediaCache.imageAttachment(img, link: r.url)); out.append(NSAttributedString(string: "\n")) }
-            let title = (l.title?.isEmpty == false ? l.title! : r.url.host ?? r.url.absoluteString)
-            out.append(NSAttributedString(string: "🔗 " + title + " — " + (r.url.host ?? "") + "\n", attributes: small.merging([.link: r.url]) { $1 }))
-            return out
+            let title = (l.title?.isEmpty == false ? l.title! : host)
+            var p = Preview(link: r.url.absoluteString, label: "🔗 " + title + " — " + host)
+            if let img = l.image {
+                let k = "web:" + r.url.absoluteString
+                p.thumbKey = k
+                p.thumbData = dataURL(k, img)
+            }
+            return p
         }
     }
 
-    static func imageAttachment(_ img: NSImage, link: URL) -> NSAttributedString {
-        let a = NSTextAttachment()
-        a.image = img
+    /// サムネイルを data: の URL に（ページはネットにもファイルにも取りに行かないので、中身ごと渡す。作ったものは覚えておく）
+    private var dataURLs: [String: String] = [:]
+    private func dataURL(_ key: String, _ img: NSImage) -> String? {
+        lock.lock()
+        if let d = dataURLs[key] { lock.unlock(); return d }
+        lock.unlock()
+        guard let d = ChatMediaCache.pngDataURL(img) else { return nil }
+        lock.lock(); dataURLs[key] = d; lock.unlock()
+        return d
+    }
+
+    static func pngDataURL(_ img: NSImage, maxEdge: CGFloat = 720) -> String? {
         let s = img.size
-        let k = min(1, size.width / max(s.width, 1), size.height / max(s.height, 1))
-        a.bounds = CGRect(x: 0, y: 0, width: s.width * k, height: s.height * k)
-        let m = NSMutableAttributedString(attributedString: NSAttributedString(attachment: a))
-        m.addAttribute(.link, value: link, range: NSRange(location: 0, length: m.length))
-        m.addAttribute(.toolTip, value: link.isFileURL ? link.path : link.absoluteString, range: NSRange(location: 0, length: m.length))
-        return m
+        let k = min(1, maxEdge / max(s.width, s.height, 1))
+        let w = Int((s.width * k).rounded()), h = Int((s.height * k).rounded())
+        guard w > 0, h > 0,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        img.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        return "data:image/png;base64," + png.base64EncodedString()
     }
 }

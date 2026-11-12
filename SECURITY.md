@@ -92,6 +92,13 @@ Jellyfish AI は、Mac にインストール済みの Claude Code（`claude` コ
 - `scripts/update.sh`（アプリの中の `Contents/Resources/update.sh` も同じもの）は、上と同じことを確かめてから入れ替えます。入れ替えるのは指定した場所（既定は /Applications/JellyfishAI.app）の Jellyfish AI だけで、終えるのもその場所から動いているものだけです。sudo は使いません。アプリの「ターミナルでアップデート」は、実行するコマンドを確認の画面に出してから、そのとおりにターミナルで動かします（`source-checkout` に書いた場所が git の checkout で `scripts/update.sh` があるときだけ、その場所で `--source` を使う）
 - アドホック署名の版どうしでは、チェックサムは「壊れていない・GitHub のリリースのとおり」を確かめるもので、作った人を確かめるものではありません（GitHub の https を信じることになります）。気になる場合は、ソースから自分でビルドしてください
 
+### チャットの表示
+
+- 会話は、アプリの中の HTML（`Contents/Resources/chat`）を WKWebView で開いて表示します（表・数式・図のため）。使うライブラリ（marked・KaTeX・Mermaid・DOMPurify・highlight.js）はアプリの中に入っていて、npm の公開パッケージからレジストリの sha512 を確かめて取り込み、公開から 2 週間以上たった版を使っています（`Resources/chat/vendor/VERSIONS.txt`）
+- **ネットには取りに行きません**：ページの Content-Security-Policy は `default-src 'none'`（スクリプト・スタイル・フォントはアプリの中のものだけ、画像は `data:` だけ、`connect-src 'none'`）。データの保存先は残らないもの（non-persistent）。ページの中でのページ移動は止め、リンク・サムネイルは押してもページでは開かず、アプリが確かめてから開きます（http / https / mailto はブラウザ・メールで、ファイルは行き先が画像・PDF のふつうのファイルのときだけ、「表紙を見る」は http / https だけ）
+- エージェントの返答は信用しない文として扱います：返答の中の生の HTML は文字として出し、Markdown から作った HTML は DOMPurify で消毒（スクリプト・フォーム・埋め込み・画像のタグと、http / https / mailto 以外の URL を取り除く）。Markdown の画像は読み込まずリンクにします。数式は KaTeX の `trust: false`、図は Mermaid の `securityLevel: 'strict'` で描き、できた SVG も DOMPurify を通します
+- 表示のプロセスが落ちても、アプリは落ちずに読み直します
+
 ### 保存するデータ
 
 - `~/Library/Application Support/JellyfishAI/`：設定・クラゲ・エージェントごとの履歴と Claude Code の生イベント・文字起こし・アプリのログ。フォルダは本人だけが開ける権限（700）にします

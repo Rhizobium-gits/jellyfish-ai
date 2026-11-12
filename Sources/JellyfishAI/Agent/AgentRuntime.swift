@@ -87,6 +87,9 @@ final class AgentRuntime {
     /// （claude -p はターミナル向けなので、何も言わないと cat で中身を表示して終わることがある）
     static var desktopNote: String { L("# Jellyfish（Mac のデスクトップアプリ）から\nあなたは Mac のデスクトップに常駐するアプリ Jellyfish AI から呼ばれています。ユーザーがファイル・フォルダ・URL を「開いて」「表示して」「見せて」と頼んだときは、中身をチャットに書き写すのではなく、`open` コマンドで Mac の既定のアプリ（プレビュー・テキストエディット・Finder・ブラウザなど）で開いてください。開いたら「〇〇を〇〇で開きました」と短く伝えれば十分です（中身の説明や要約は頼まれたときだけ）。開くのはユーザーが頼んだものだけにしてください。") }
 
+    /// チャットに出せる書き方（どの AI にも同じ文を渡す。毎回同じなのでプロンプトキャッシュは崩れない）
+    static var chatFormatNote: String { L("# チャットの表示\nあなたの返答は Jellyfish のチャットで Markdown として表示されます。表（| 列 | 列 |）、数式（文中は $…$、別の行は $$…$$。KaTeX）、図・グラフ（```mermaid のコードブロック：flowchart・sequenceDiagram・pie・xychart-beta など。xychart の日本語のラベルは \"\" で囲む）、言語名つきのコードブロックが、そのまま表・数式・図として見えます。表やグラフにすると分かりやすいときは使ってください。画像のファイルを作ったときは、その絶対パスを書くとサムネイルが出ます。") }
+
     init(agentID: UUID, baseDir: URL, backendProvider: @escaping (AgentEngine?) -> AgentBackend?) {
         self.agentID = agentID
         self.backendProvider = backendProvider
@@ -225,7 +228,9 @@ final class AgentRuntime {
             }
         }
         // デスクトップのアプリとしての振る舞い（毎回同じ文なのでプロンプトキャッシュは崩れない）
-        if claude { opts.appendSystemPrompt = [AgentRuntime.desktopNote, opts.appendSystemPrompt].compactMap { $0 }.joined(separator: "\n\n") }
+        if claude { opts.appendSystemPrompt = [AgentRuntime.desktopNote, AgentRuntime.chatFormatNote, opts.appendSystemPrompt].compactMap { $0 }.joined(separator: "\n\n") }
+        // Codex は developer_instructions に（Gemini はチームのツールの説明で渡す）
+        if backend.engine == .codex { opts.instructions = [AgentRuntime.chatFormatNote, opts.instructions].compactMap { $0 }.joined(separator: "\n\n") }
         // チームの受け渡し用のフォルダ（どの AI でも読み書きできるように渡す）
         opts.addDirs = extraDirs?() ?? []
         // 添付（画面の画像・落としたファイル・システムの音の文字起こし）を、どの AI でも読めるように

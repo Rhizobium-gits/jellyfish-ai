@@ -481,7 +481,8 @@ final class TeamCoordinator {
     private func initializeInstructions(_ conn: BusConnection) -> String {
         if let id = conn.agentID, let c = controller(id), let rt = manager?.runtime(for: c), rt.effectiveEngine != .claude,
            let p = runPrompts[id] {
-            return p
+            // Gemini には system prompt を足すオプションが無いので、チャットに出せる書き方もここで
+            return rt.effectiveEngine == .gemini ? p + "\n\n" + AgentRuntime.chatFormatNote : p
         }
         return L("Jellyfish AI のチーム機能。線でつながった仲間のエージェントに作業を頼み、結果を受け取る。")
     }

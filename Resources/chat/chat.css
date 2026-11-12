@@ -1,0 +1,98 @@
+:root {
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --faint: #a1a1a6;
+  --line: rgba(0, 0, 0, 0.12);
+  --code-bg: rgba(0, 0, 0, 0.045);
+  --table-head: rgba(0, 0, 0, 0.04);
+  --table-stripe: rgba(0, 0, 0, 0.018);
+  --error: #d70015;
+  --accent: #0a84ff;
+  --link: #0a66d8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #f2f2f7;
+    --muted: #a1a1a6;
+    --faint: #6e6e73;
+    --line: rgba(255, 255, 255, 0.16);
+    --code-bg: rgba(255, 255, 255, 0.07);
+    --table-head: rgba(255, 255, 255, 0.06);
+    --table-stripe: rgba(255, 255, 255, 0.025);
+    --error: #ff6961;
+    --link: #64a8ff;
+  }
+}
+
+html, body { margin: 0; padding: 0; background: transparent; }
+body {
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "PingFang SC", sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: anywhere;
+}
+#log { padding: 8px 14px 14px; }
+
+.item { margin: 0 0 4px; }
+.caption {
+  font-size: 11px; font-weight: 600; margin: 14px 0 3px; color: var(--accent);
+  letter-spacing: 0.01em;
+}
+.caption.muted { color: var(--muted); }
+.caption.error { color: var(--error); }
+.user .body { font-weight: 500; white-space: pre-wrap; }
+.notes { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.tool { font: 11.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); margin: 2px 0; white-space: pre-wrap; }
+.error .body { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: var(--error); white-space: pre-wrap; }
+.running .body { color: var(--accent); font-size: 13px; }
+.empty { color: var(--faint); font-size: 13px; padding: 6px 0; }
+
+/* Markdown */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 0.6em; }
+.md h1, .md h2, .md h3, .md h4 { margin: 0.9em 0 0.4em; line-height: 1.3; }
+.md h1 { font-size: 1.35em; } .md h2 { font-size: 1.2em; } .md h3 { font-size: 1.08em; } .md h4 { font-size: 1em; }
+.md ul, .md ol { margin: 0 0 0.6em; padding-left: 1.5em; }
+.md li { margin: 0.15em 0; }
+.md blockquote { margin: 0 0 0.6em; padding: 0.1em 0.9em; border-left: 3px solid var(--line); color: var(--muted); }
+.md hr { border: none; border-top: 1px solid var(--line); margin: 1em 0; }
+.md a { color: var(--link); text-decoration: none; cursor: pointer; }
+.md a:hover { text-decoration: underline; }
+.md code { font: 0.9em ui-monospace, "SF Mono", Menlo, monospace; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+.md pre { position: relative; margin: 0 0 0.7em; background: var(--code-bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; white-space: pre; }
+.md pre .hljs { background: none; padding: 0; }
+.md pre .copy {
+  position: absolute; top: 6px; right: 6px; font: 11px -apple-system, sans-serif; color: var(--muted);
+  background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px; cursor: pointer; opacity: 0;
+}
+.md pre:hover .copy { opacity: 1; }
+
+/* 表 */
+.md .table-wrap { overflow-x: auto; margin: 0 0 0.8em; }
+.md table { border-collapse: collapse; font-size: 13px; min-width: 40%; }
+.md th, .md td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; vertical-align: top; }
+.md th { background: var(--table-head); font-weight: 600; }
+.md tr:nth-child(even) td { background: var(--table-stripe); }
+.md td[align="center"], .md th[align="center"] { text-align: center; }
+.md td[align="right"], .md th[align="right"] { text-align: right; }
+
+/* 数式 */
+.md .math-block { overflow-x: auto; overflow-y: hidden; margin: 0.3em 0 0.8em; text-align: center; }
+.md .katex { font-size: 1.08em; }
+.md .math-error { color: var(--error); font-family: ui-monospace, Menlo, monospace; }
+
+/* 図・グラフ（Mermaid） */
+.md .diagram { margin: 0.3em 0 0.8em; overflow-x: auto; text-align: center; }
+.md .diagram svg { max-width: 100%; max-height: 440px; width: auto; height: auto; }
+.md .diagram.pending, .md .diagram.failed { text-align: left; }
+.md .diagram.failed pre { border: 1px dashed var(--line); }
+.md .diagram .diagram-note { font-size: 11px; color: var(--muted); }
+
+/* 画像・PDF・Web のプレビュー */
+.media { margin: 4px 0 2px; }
+.media .thumb { display: block; max-width: 360px; max-height: 220px; border-radius: 6px; border: 1px solid var(--line); cursor: pointer; }
+.media .label { font-size: 11.5px; color: var(--muted); }
+.media a { color: var(--link); text-decoration: none; cursor: pointer; }
+.media a:hover { text-decoration: underline; }

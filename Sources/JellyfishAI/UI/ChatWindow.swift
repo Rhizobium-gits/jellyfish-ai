@@ -156,8 +156,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     /// Mac の音声入力（システム設定 › キーボード › 音声入力）で入力欄に話して入れる
     private let dictationButton = NSButton(title: "🎙", target: nil, action: nil)
     private var listenTimer: Timer?
-    private let transcript = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
-    private let transcriptScroll = NSScrollView()
+    /// 会話の表示（表・数式・図・コードの色分け。アプリの中の HTML を WKWebView で）
+    private let transcriptView = ChatTranscriptView(frame: NSRect(x: 0, y: 0, width: 500, height: 100))
     private let input = PromptTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 44))
     private let inputScroll = NSScrollView()
     private let footer = NSTextField(labelWithString: "")
@@ -204,7 +204,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     /// ⌘L で作ったばかりのクラゲへの最初の指示は、送信したらウィンドウを閉じて元の作業に戻す
     var closeAfterFirstSubmit = false
     private var reloadScheduled = false
-    private var lastRenderedCount = -1
+    private var firstRender = true
 
     init(jelly: JellyController, runtime: AgentRuntime, size: NSSize) {
         self.jelly = jelly
@@ -343,17 +343,8 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         (folderButton.cell as? NSButtonCell)?.lineBreakMode = .byTruncatingMiddle
         terminalButton.setContentCompressionResistancePriority(.init(260), for: .horizontal)
 
-        configureScrollable(transcript)
-        transcript.isEditable = false
-        transcript.isSelectable = true
-        transcript.delegate = self
-        transcript.drawsBackground = false
-        transcript.textContainerInset = NSSize(width: 6, height: 8)
-        transcriptScroll.documentView = transcript
-        transcriptScroll.hasVerticalScroller = true
-        transcriptScroll.autohidesScrollers = true
-        transcriptScroll.drawsBackground = false
-        transcriptScroll.borderType = .noBorder
+        transcriptView.onOpen = { [weak self] href in self?.openLink(href) }
+        transcriptView.onReload = { [weak self] in self?.reloadTranscript() }
 
         configureScrollable(input)
         input.font = .systemFont(ofSize: 14.5)
@@ -392,14 +383,14 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
         orgRow.spacing = 6
         orgRow.isHidden = true
         self.orgRow = orgRow
-        let stack = NSStackView(views: [titleRow, infoRow, transcriptScroll, orgRow, attachRow, inputScroll, controlsRow, footer])
+        let stack = NSStackView(views: [titleRow, infoRow, transcriptView, orgRow, attachRow, inputScroll, controlsRow, footer])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 34, left: 16, bottom: 12, right: 16)   // 上はタイトルバー（信号ボタン）の分
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.setHuggingPriority(.defaultLow, for: .vertical)
-        transcriptScroll.setContentHuggingPriority(.defaultLow, for: .vertical)
+        transcriptView.setContentHuggingPriority(.defaultLow, for: .vertical)
         bg.addSubview(stack)
 
         inputHeight = inputScroll.heightAnchor.constraint(equalToConstant: 46)
@@ -408,11 +399,11 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
             stack.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
             stack.topAnchor.constraint(equalTo: bg.topAnchor),
             stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor),
-            transcriptScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            transcriptView.heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
             inputHeight,
         ]
         attachRow.isHidden = true
-        for v in [titleRow, infoRow, transcriptScroll, orgRow, attachRow, inputScroll, controlsRow, footer] as [NSView] {
+        for v in [titleRow, infoRow, transcriptView, orgRow, attachRow, inputScroll, controlsRow, footer] as [NSView] {
             cs.append(v.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32))
         }
         NSLayoutConstraint.activate(cs)
@@ -613,25 +604,43 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     // MARK: 会話の表示
 
-    /// 画像・PDF のサムネイルと Web ページのプレビューを足す（できていないものは、できたらもう一度描く）
+    /// 画像・PDF のサムネイルと Web ページのプレビュー（できていないものは、できたらもう一度描く）
     /// autoWeb：Web のページを自動で読みに行くか（自分の書いた URL だけ。エージェントの返答の URL は「表紙を見る」を押したとき）
-    private func appendMedia(_ refs: [ChatMedia.Ref], autoWeb: Bool, to out: NSMutableAttributedString) {
+    private func mediaItems(_ refs: [ChatMedia.Ref], autoWeb: Bool, images: inout [String: String]) -> [[String: Any]] {
         let web = manager?.settings.linkPreviews ?? true
         var seen = Set<ChatMedia.Ref>()
+        var out: [[String: Any]] = []
         for r in refs where seen.insert(r).inserted {
-            if let a = ChatMediaCache.shared.attachment(r, webPreviews: web, autoWeb: autoWeb) { out.append(a) }
+            guard let p = ChatMediaCache.shared.preview(r, webPreviews: web, autoWeb: autoWeb) else { continue }
+            var d: [String: Any] = ["link": p.link, "label": p.label]
+            if let k = p.thumbKey, let data = p.thumbData { d["thumbKey"] = k; images[k] = data }
+            if let pl = p.previewLink { d["previewLink"] = pl; d["previewLabel"] = L("表紙を見る"); d["host"] = p.host ?? "" }
+            out.append(d)
         }
+        return out
     }
 
     func reloadTranscript() {
         guard let jelly else { return }
         let accent = NSColor(srgbRed: CGFloat(jelly.record.color.flat.x), green: CGFloat(jelly.record.color.flat.y),
                              blue: CGFloat(jelly.record.color.flat.z), alpha: 1)
-        let out = NSMutableAttributedString()
-        let caption: (String, NSColor) -> NSAttributedString = { s, c in
-            let ps = NSMutableParagraphStyle(); ps.paragraphSpacingBefore = 12
-            return NSAttributedString(string: s + "\n", attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                                                                     .foregroundColor: c, .paragraphStyle: ps])
+        var items: [[String: Any]] = []
+        var images: [String: String] = [:]
+        // 1 つぶん。中身が同じなら id も同じなので、ページは作り直さない
+        func add(_ kind: String, caption: String? = nil, style: String? = nil, color: NSColor? = nil,
+                 text: String, notes: [String] = [], media: [[String: Any]] = []) {
+            var h = Hasher()
+            h.combine(kind); h.combine(caption); h.combine(style); h.combine(text); h.combine(notes)
+            for m in media {
+                for k in ["link", "label", "thumbKey", "previewLink"] { h.combine(m[k] as? String) }
+            }
+            var d: [String: Any] = ["id": "\(items.count)-\(h.finalize())", "kind": kind, "text": text]
+            if let caption { d["caption"] = caption }
+            if let style { d["captionStyle"] = style }
+            if let color { d["captionColor"] = color.hexRGB }
+            if !notes.isEmpty { d["notes"] = notes }
+            if !media.isEmpty { d["media"] = media }
+            items.append(d)
         }
         var messages: [SessionMessage] = []
         // 返答ごとの AI（見出しの名前）。Claude Code のセッション記録から読んだものは Claude
@@ -661,14 +670,13 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                 var text = m.text
                 var notes: [String] = []
                 let fromTeammate = text.hasPrefix(TeamCoordinator.requestMarker)
+                var cap = L("あなた"), style: String? = "muted", color: NSColor? = nil
                 // 仲間のエージェントからの依頼（TeamCoordinator が付けた目印）
-                if text.hasPrefix(TeamCoordinator.requestMarker), let end = text.range(of: "]\n") {
+                if fromTeammate, let end = text.range(of: "]\n") {
                     let from = String(text[text.index(text.startIndex, offsetBy: TeamCoordinator.requestMarker.count)..<end.lowerBound])
                     text = String(text[end.upperBound...])
                     if let f = text.range(of: TeamCoordinator.requestFooter) { text = String(text[..<f.lowerBound]) }
-                    out.append(caption(L("📨 %@ からの依頼", from), accent))
-                } else {
-                    out.append(caption(L("あなた"), .secondaryLabelColor))
+                    cap = L("📨 %@ からの依頼", from); style = nil; color = accent
                 }
                 if let r = text.range(of: ScreenContext.marker) {
                     let block = String(text[r.upperBound...])
@@ -683,48 +691,35 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
                     text = String(text[..<r.lowerBound])
                     notes.append("📎 " + names.joined(separator: ", "))
                 }
-                out.append(NSAttributedString(string: text + "\n", attributes: [.font: NSFont.systemFont(ofSize: 14, weight: .medium),
-                                                                                  .foregroundColor: NSColor.labelColor]))
-                for n in notes {
-                    out.append(NSAttributedString(string: n + "\n", attributes: [.font: NSFont.systemFont(ofSize: 11.5),
-                                                                                    .foregroundColor: NSColor.secondaryLabelColor]))
-                }
                 let userTyped = !fromTeammate && typed.contains(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                appendMedia(attachedMedia + ChatMedia.refs(in: text), autoWeb: userTyped, to: out)
+                add("user", caption: cap, style: style, color: color, text: text, notes: notes,
+                    media: mediaItems(attachedMedia + ChatMedia.refs(in: text), autoWeb: userTyped, images: &images))
             case .assistant:
-                out.append(caption(((index < speakers.count ? speakers[index] : nil) ?? runtime.effectiveEngine).displayName, accent))
-                out.append(Markdown.render(m.text, size: 14))
-                out.append(NSAttributedString(string: "\n"))
-                // 返答に出てきた画像・PDF・Web ページ
-                appendMedia(ChatMedia.refs(in: m.text), autoWeb: false, to: out)
+                let who = ((index < speakers.count ? speakers[index] : nil) ?? runtime.effectiveEngine).displayName
+                // 返答は Markdown（表・数式・図・コード）。出てきた画像・PDF・Web ページは文の下に
+                add("assistant", caption: who, color: accent, text: m.text,
+                    media: mediaItems(ChatMedia.refs(in: m.text), autoWeb: false, images: &images))
             case .tool:
-                let ps = NSMutableParagraphStyle(); ps.paragraphSpacingBefore = 4
-                out.append(NSAttributedString(string: "⚙︎ " + m.text + "\n",
-                                              attributes: [.font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular),
-                                                           .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: ps]))
+                add("tool", text: "⚙︎ " + m.text)
             }
         }
         if let last = runtime.lastTurn, last.state == .error || last.state == .cancelled, let e = last.error, !e.isEmpty {
-            out.append(caption(last.state == .error ? L("エラー") : L("キャンセル済み"), .systemRed))
-            out.append(NSAttributedString(string: e + "\n", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-                                                                           .foregroundColor: NSColor.systemRed]))
+            add("error", caption: last.state == .error ? L("エラー") : L("キャンセル済み"), style: "error", text: e)
         }
         if runtime.isRunning {
-            out.append(caption((runtime.runningEngine ?? runtime.effectiveEngine).displayName, accent))
-            out.append(NSAttributedString(string: "… " + (runtime.activity ?? L("作業中")) + "\n",
-                                          attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: accent]))
+            add("running", caption: (runtime.runningEngine ?? runtime.effectiveEngine).displayName, color: accent,
+                text: "… " + (runtime.activity ?? L("作業中")))
         }
-        if out.length == 0 {
-            out.append(NSAttributedString(string: L("まだ会話はありません。下の欄に指示を入力してください。") + "\n",
-                                          attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.tertiaryLabelColor]))
-        }
-
-        // 一番下を見ていたときだけ自動で追従する
-        let clip = transcriptScroll.contentView
-        let atBottom = clip.bounds.maxY >= (transcript.frame.height - 30) || lastRenderedCount < 0
-        transcript.textStorage?.setAttributedString(out)
-        lastRenderedCount = out.length
-        if atBottom { transcript.scrollToEndOfDocument(nil) }
+        let payload: [String: Any] = [
+            "accent": accent.hexRGB,
+            "items": items,
+            "images": transcriptView.takeNewImages(images),
+            "empty": L("まだ会話はありません。下の欄に指示を入力してください。"),
+            "labels": ["copy": L("コピー"), "copied": L("コピーしました"), "diagramFailed": L("図にできませんでした（Mermaid の書き方を確かめてください）")],
+        ]
+        // 開いた最初だけ一番下へ。あとは一番下を見ていたときだけ追従する（ページの側で）
+        transcriptView.update(payload, scrollToEnd: firstRender)
+        firstRender = false
     }
 
     // MARK: 操作
@@ -1053,19 +1048,19 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
 
     func textDidChange(_ notification: Notification) { relayoutInput() }
 
-    /// 会話の中のリンク：「表紙を見る」なら読みに行く。ほかは標準どおり（ブラウザ・既定のアプリで開く）
-    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-        guard textView === transcript, let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:)) else { return false }
+    /// 会話の中のリンク・サムネイルが押された：「表紙を見る」なら読みに行く。ファイルは、行き先が画像・PDF のふつうのファイルかを
+    /// もう一度確かめてから開く。Web は http / https・mailto だけ（ブラウザ・メールで）。それ以外は開かない
+    private func openLink(_ href: String) {
+        guard let url = URL(string: href) else { return }
         if url.scheme == ChatMediaCache.previewScheme {
             ChatMediaCache.shared.allow(link: url)
-            return true
+            return
         }
-        // ファイル：押したときにもう一度、行き先が画像・PDF のふつうのファイルかを確かめてから開く（描いたあとに差し替えられていても開かない）
         if url.isFileURL {
             if let f = ChatMedia.resolvedFile(url.path) { NSWorkspace.shared.open(f) } else { NSSound.beep() }
-            return true
+            return
         }
-        return false
+        if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") { NSWorkspace.shared.open(url) }
     }
 
     private func relayoutInput() {

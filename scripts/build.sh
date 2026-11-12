@@ -49,6 +49,9 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 # コマンド 1 つで新しい版に上げるスクリプト（ソースが無くても /Applications/JellyfishAI.app/Contents/Resources/update.sh で使える）
 install -m 755 "$ROOT/scripts/update.sh" "$APP/Contents/Resources/update.sh"
+# チャットの会話の表示（表・数式・図）：HTML と、アプリの中で読み込むライブラリ（Resources/chat/vendor、ネットには取りに行かない）
+rm -rf "$APP/Contents/Resources/chat"
+ditto "$ROOT/Resources/chat" "$APP/Contents/Resources/chat"
 # macOS の許可をまとめて扱うスクリプト（アプリの「🔐 権限」からも使う）
 install -m 755 "$ROOT/scripts/permissions.sh" "$APP/Contents/Resources/permissions.sh"
 

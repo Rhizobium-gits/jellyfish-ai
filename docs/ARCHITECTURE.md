@@ -108,6 +108,13 @@ claude -p ... --mcp-config agents/<id>/mcp.json --allowedTools mcp__jellyfish --
 - **会話を作った AI**：`AgentRuntime.sessionEngine`（meta.json）。既定の AI が変わってクラゲの AI が変わったら、submit で新しい会話にしてモデル・強さの指定を外す。`AgentTurn.engine` でターンごとの AI を覚え、チャットの見出しに使う（Claude Code のセッション記録から読んだ返答は Claude）
 - **仲間の強さ**：`TeamCoordinator.requestedEffort` / `effortList`（Claude は AgentChatController.efforts、ChatGPT はモデルの supported_reasoning_levels、Gemini は無し）
 
+## 2.6.3 チャットの会話の表示（UI/ChatTranscriptView.swift・Resources/chat）
+
+- 会話は WKWebView（`Resources/chat/index.html`、`loadFileURL` でそのフォルダだけ読める）。`AgentChatController.reloadTranscript` がメッセージを `[{id, kind, caption, text, notes, media}]` にして `JF.update(payload)`。id は中身のハッシュなので、変わったものだけページが作り直す。サムネイルは `images`（key → data: の PNG）で 1 回だけ送る
+- `render.js`：marked（GFM の表）＋ 数式の拡張（`$…$`・`$$…$$`・`\(…\)`・`\[…\]` → KaTeX）＋ コード（highlight.js、```mermaid は図の待ち）。DOM を使わないので、テストは JavaScriptCore で同じライブラリを読んで確かめる。`chat.js`：DOMPurify で消毒（`ALLOWED_URI_REGEXP` は http / https / mailto と、スキームの無い値だけ。属性の値もこの式で見られるので、スキームの無い値を通さないと `align` などが消える）、Mermaid（`securityLevel: 'strict'`、`htmlLabels: false`）。図の元の文はコードの中に置く（属性にすると `-->` を含む値を DOMPurify が消す）
+- リンク・サムネイル・コピーは `webkit.messageHandlers.jf` でアプリへ。ナビゲーションは最初の index.html のほかは止める。CSP は `default-src 'none'`
+- 見本：`--chat-sample out.png`（画面の外の窓で描いて `takeSnapshot`）
+
 ## 2.6.2 チャットの画像・PDF・Web ページと音声入力（UI/ChatMedia.swift）
 
 - `ChatMedia.refs(in:)` が文から画像・PDF のパス（実在・50MB まで）と http / https の URL を拾う（URL の中のパスはファイルとして拾わない。1 メッセージ 6 件まで）。添付は `attachMarker` の下の行から

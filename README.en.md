@@ -47,7 +47,7 @@
 | **Choose your AI** | Claude (Claude Code), ChatGPT (Codex CLI) and Gemini (Gemini CLI). Choose the AI, model and thinking effort per jellyfish. You sign in on each one's official screen, and an AI that isn't installed can be installed, all the way through sign-in, once you allow it |
 | **Divide work as a team** | Bring jellyfish close to each other to link them, and they split the work by asking teammates or bringing out new ones. **Across AIs**, a Claude jellyfish can bring out ChatGPT teammates and a ChatGPT jellyfish can bring out Claude teammates. Requests and results travel back and forth along the lines as light |
 | **Autonomous organization mode** | For each request, the agent decides on the team's shape and assembles it on its own, then learns from the results and 👍👎 to evolve how it chooses an organization |
-| **Chat** | Images and PDFs appear as thumbnails, web pages with their cover and title. 🎙 Mac Dictation, 🎧 system audio transcription, screen and file attachments, and ↑↓ for previous instructions |
+| **Chat** | Like the ChatGPT, Claude and Gemini apps, **tables, math, diagrams and charts, and highlighted code** are shown as they are. Images and PDFs appear as thumbnails, web pages with their cover and title. 🎙 Mac Dictation, 🎧 system audio transcription, screen and file attachments, ↑↓ for previous instructions |
 | **PC control** | Only jellyfish you allow can look at the screen, click and type (Claude). The edges of the screen glow while it's in control, and Esc stops it |
 | **🔐 Permissions** | Lists the macOS permissions (Accessibility, Screen Recording, Full Disk Access, Automation) and what each one enables, and grants or revokes them all at once |
 | **See your usage** | Bars in the menu bar for Claude's weekly limit and ChatGPT's 5-hour and weekly limits. Plus calls and tokens per AI, per model and per account |
@@ -163,6 +163,7 @@ The chat window that opens when you tap a jellyfish is a normal Mac window (mini
 
 ### What you can do in the chat
 
+- **Tables, math, diagrams and charts**: Markdown tables in replies, math (inline `$…$`, on its own line `$$…$$`; KaTeX), Mermaid diagrams and charts (flowcharts, sequence diagrams, pie charts, bar and line charts with `xychart-beta`, etc.) and syntax-highlighted code with a copy button are shown like in the ChatGPT, Claude and Gemini apps. Every AI is told about these formats, so asking for “a table” or “a chart” shows one. Rendering uses only libraries bundled in the app and never goes online (HTML in replies is shown as text, and web images aren't loaded)
 - **See images, PDFs and web pages**: attached images and PDFs, and image or PDF files that come up in the conversation, appear below the text as Quick Look thumbnails; web page URLs appear with their cover image and title (the Mac's LinkPresentation). Click to open them in Preview or your browser
   - Only **URLs in instructions you typed yourself** are loaded automatically. Pages that come up in an agent's reply or in a request from a teammate are loaded only when you press “Show cover” (so that if instructions hidden in a page it read make the agent write a URL containing secrets, nothing is sent on its own)
 - **Speak to type**: **🎙** or Edit › **Start Dictation** in the menu starts the Mac's Dictation in the input field. It's the macOS feature, not AI transcription (System Settings › Keyboard › Dictation; the shortcut set there works too)
@@ -461,4 +462,4 @@ Each AI's CLI and its records belong to that CLI, so they remain even after you 
 
 ## License
 
-[MIT](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for the change history.
+[MIT](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for the change history. The licenses of the libraries used to display the chat (marked, KaTeX, Mermaid, DOMPurify, highlight.js) are in [Resources/chat/vendor/licenses](Resources/chat/vendor/licenses), and their versions in [VERSIONS.txt](Resources/chat/vendor/VERSIONS.txt).

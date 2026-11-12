@@ -37,14 +37,13 @@ import Testing
     @Test func agentURLsWaitForAClick() {
         // エージェントの返答の URL は読みに行かず、「表紙を見る」のリンクだけ出す
         let u = URL(string: "https://example.invalid/collect?d=secret")!
-        let a = ChatMediaCache.shared.attachment(ChatMedia.Ref(kind: .web, url: u), webPreviews: true, autoWeb: false)
-        #expect(a?.string.contains("表紙を見る") == true)
-        var links: [URL] = []
-        a?.enumerateAttribute(.link, in: NSRange(location: 0, length: a?.length ?? 0)) { v, _, _ in if let l = v as? URL { links.append(l) } }
-        let p = try! #require(links.first { $0.scheme == ChatMediaCache.previewScheme })
-        #expect(ChatMediaCache.target(of: p) == u)
+        let p = try! #require(ChatMediaCache.shared.preview(ChatMedia.Ref(kind: .web, url: u), webPreviews: true, autoWeb: false))
+        let pl = try! #require(p.previewLink.flatMap(URL.init(string:)))
+        #expect(pl.scheme == ChatMediaCache.previewScheme)
+        #expect(ChatMediaCache.target(of: pl) == u)
+        #expect(p.thumbData == nil)
         // Web のプレビューを止めていれば何も出さない
-        #expect(ChatMediaCache.shared.attachment(ChatMedia.Ref(kind: .web, url: u), webPreviews: false, autoWeb: false) == nil)
+        #expect(ChatMediaCache.shared.preview(ChatMedia.Ref(kind: .web, url: u), webPreviews: false, autoWeb: false) == nil)
         // http / https 以外は指せない
         #expect(ChatMediaCache.target(of: URL(string: "jellyfish-preview:file%3A%2F%2F%2Fetc%2Fpasswd")!) == nil)
         #expect(ChatMediaCache.target(of: URL(string: "https://example.com")!) == nil)
@@ -694,5 +693,80 @@ final class RecordingBackend: AgentBackend {
             #expect(info.id == id)
             #expect(info.title == "テストの会話" || info.title == "はじめの指示")
         }
+    }
+}
+
+
+import JavaScriptCore
+
+/// チャットの表示（Resources/chat/render.js）を、アプリに入れるのと同じライブラリで JavaScriptCore で動かす
+@Suite struct ChatRenderTests {
+    static let ctx: JSContext = {
+        let ctx = JSContext()!
+        let dir = UpdateScriptTests.root.appendingPathComponent("Resources/chat")
+        for f in ["vendor/marked.umd.js", "vendor/katex.min.js", "vendor/highlight.min.js", "render.js"] {
+            let src = try! String(contentsOf: dir.appendingPathComponent(f), encoding: .utf8)
+            ctx.evaluateScript(src, withSourceURL: URL(string: "file:///\(f)"))
+        }
+        return ctx
+    }()
+
+    func md(_ s: String) -> String {
+        let r = ChatRenderTests.ctx.objectForKeyedSubscript("JFRender")?.invokeMethod("markdown", withArguments: [s])
+        if let e = ChatRenderTests.ctx.exception { Issue.record("JS: \(e)"); ChatRenderTests.ctx.exception = nil }
+        return r?.toString() ?? ""
+    }
+
+    @Test func tables() {
+        let h = md("| 名前 | 値 |\n|---|---:|\n| a | 1 |\n| b | 2 |")
+        #expect(h.contains("<div class=\"table-wrap\"><table>"))
+        #expect(h.contains("<th>名前</th>"))
+        #expect(h.contains("align=\"right\""))
+    }
+
+    @Test func math() {
+        #expect(md("エネルギーは $E=mc^2$ です").contains("class=\"katex\""))
+        #expect(md("$$\\int_0^1 x\\,dx = \\frac{1}{2}$$").contains("katex-display"))
+        #expect(md("\\[ a^2+b^2=c^2 \\]").contains("katex-display"))
+        #expect(md("文中の \\(\\sqrt{2}\\) も").contains("class=\"katex\""))
+        // 値段は数式にしない
+        #expect(!md("値段は $5 と $10 です").contains("katex"))
+        // コードの中の $ は数式にしない
+        let c = md("`$x$` と書く")
+        #expect(!c.contains("katex") && c.contains("<code>$x$</code>"))
+        // 間違った数式でも落ちない
+        #expect(md("$\\frac{1}{$").count > 0)
+    }
+
+    @Test func codeAndDiagrams() {
+        #expect(md("```swift\nlet x = 1\n```").contains("hljs-keyword"))
+        let d = md("```mermaid\npie title 割合\n  \"A\" : 60\n  \"B\" : 40\n```")
+        #expect(d.contains("class=\"diagram pending\""))
+        #expect(d.contains("<pre><code>pie title 割合"))
+        #expect(d.contains("&quot;A&quot;"))
+        // 「-->」を含む図も、元の文は属性ではなくコードの中に（DOMPurify に消されない）
+        let f = md("```mermaid\nflowchart LR\n  A --> B\n```")
+        #expect(f.contains("A --&gt; B") && !f.contains("data-src"))
+    }
+
+    @Test func rawHTMLAndLinksAreSafe() {
+        let h = md("<script>alert(1)</script> と <img src=x onerror=alert(1)>")
+        #expect(!h.contains("<script") && !h.contains("<img"))
+        #expect(h.contains("&lt;script&gt;"))
+        let l = md("[押す](javascript:alert(1)) と [ok](https://example.com)")
+        #expect(!l.contains("javascript:") || !l.contains("href=\"javascript"))
+        #expect(l.contains("<a href=\"https://example.com\">ok</a>"))
+        // 画像は読みに行かない（リンクにする）
+        let i = md("![グラフ](https://example.com/chart.png)")
+        #expect(!i.contains("<img"))
+        #expect(i.contains("<a href=\"https://example.com/chart.png\">🖼 グラフ</a>"))
+    }
+
+    @Test func pageHasAStrictContentPolicy() throws {
+        let html = try String(contentsOf: UpdateScriptTests.root.appendingPathComponent("Resources/chat/index.html"), encoding: .utf8)
+        #expect(html.contains("default-src 'none'"))
+        #expect(html.contains("connect-src 'none'"))
+        #expect(html.contains("img-src data:"))
+        #expect(!html.contains("http://") && !html.contains("https://"))
     }
 }

@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-11-12
+
+### 追加
+
+- **チャットで表・数式・図とグラフを表示**：ChatGPT・Claude・Gemini のアプリのように、返答の Markdown の表（列の揃えも）、数式（`$…$`・`$$…$$`・`\(…\)`・`\[…\]`。KaTeX）、Mermaid の図とグラフ（フローチャート・シーケンス図・円グラフ・`xychart-beta` の棒グラフと折れ線グラフ など）、言語名つきのコードの色分け（コピーのボタンつき）を表示する。会話の表示を WKWebView（アプリの中の HTML）にした。値段の「$5 と $10」は数式にしない。図を描けなかったときは元の文と理由を出す
+- どの AI にも、チャットに出せる書き方（表・数式・Mermaid・画像のパス）を短く伝える（Claude は追加の system prompt、Codex は developer_instructions、Gemini はチームのツールの説明）
+- `JellyfishAI --chat-sample out.png [--bg dark]`：表示の見本を画面の外で描いて PNG に（モデルは呼ばない）
+
+### セキュリティ
+
+- 会話の表示はネットに取りに行かない（CSP `default-src 'none'`・画像は `data:` だけ）。返答の生の HTML は文字として出し、DOMPurify で消毒、リンクはアプリが確かめてから開く。ライブラリは npm のレジストリの sha512 を確かめて取り込み、公開から 2 週間以上たった版
+
+
 ## [1.1.8] - 2026-11-12
 
 ### 修正
@@ -208,6 +221,7 @@
 - 長い会話を開いているとき、更新のたびにセッションのファイル全体を読み直していた（増えた分だけ読む）
 - Claude Code をあとから入れても、アプリを再起動するまで見つけられなかった
 
+[1.1.9]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.1.9
 [1.1.8]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.1.8
 [1.0.8]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.8
 [1.0.7]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.0.7
