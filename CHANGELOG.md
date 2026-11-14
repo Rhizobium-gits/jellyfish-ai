@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-14
+
 ### 修正
 
 - **固定の署名で入れた版から「アップデートする」で上げられなかった**：いまの版が証明書で署名されていると、新しい版も同じ証明書の署名であることを求めていたが、配布版（仮の署名）がこの Mac で作った証明書（`scripts/signing.sh`）で署名されることはないので、いつも「いまの版と署名が違います（-67050）」で止まっていた。いまの版が自己署名の固定の署名なら、配布版をこれまでどおり確かめた（チェックサム・中身・署名）うえで、この Mac の鍵で署名し直してから入れ替える（macOS の許可が続く。鍵を使うときは macOS が確かめる）。鍵がキーチェーンに無いときは、配布版の仮の署名のまま入れ替える。Developer ID など認証局の証明書の版は、これまでどおり同じ証明書の版にしか入れ替えない。ターミナルでのアップデート（`scripts/update.sh`）も同じにした
@@ -244,6 +246,7 @@
 - 長い会話を開いているとき、更新のたびにセッションのファイル全体を読み直していた（増えた分だけ読む）
 - Claude Code をあとから入れても、アプリを再起動するまで見つけられなかった
 
+[1.2.2]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.2.2
 [1.2.1]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.2.0
 [1.1.9]: https://github.com/Rhizobium-gits/jellyfish-ai/releases/tag/v1.1.9
