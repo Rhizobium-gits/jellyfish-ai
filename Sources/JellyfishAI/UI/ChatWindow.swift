@@ -480,6 +480,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     }
 
     func closeAndReturn() {
+        AppLog.write("chat \(jelly?.record.number ?? -1): hide (esc / sent)")
         window.orderOut(nil)
         manager?.chatWindowVisibilityChanged()
         previousApp?.activate()
@@ -971,6 +972,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     @objc private func togglePC() {
         let on = !runtime.pcControl
         runtime.pcControl = on
+        AppLog.write("chat \(jelly?.record.number ?? -1): pc \(on ? "on" : "off") accessibility=\(DesktopControl.hasAccessibility) screen=\(DesktopControl.hasScreenRecording) running=\(runtime.isRunning)")
         if on && !(DesktopControl.hasAccessibility && DesktopControl.hasScreenRecording) {
             let a = NSAlert()
             a.messageText = L("PC 操作には macOS の許可が必要です")
@@ -1108,6 +1110,7 @@ final class AgentChatController: NSObject, NSWindowDelegate, NSTextViewDelegate 
     }
 
     func windowWillClose(_ notification: Notification) {
+        AppLog.write("chat \(jelly?.record.number ?? -1): window closed")
         DispatchQueue.main.async { [weak self] in self?.manager?.chatWindowVisibilityChanged() }
     }
 

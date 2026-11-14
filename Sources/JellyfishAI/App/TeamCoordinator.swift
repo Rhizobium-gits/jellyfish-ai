@@ -1196,7 +1196,8 @@ final class TeamCoordinator {
                 guard let c = resolve(name: n, in: caller) else { fail(L("「%@」はチームにいません", n)); return }
                 target = c.record.id
             }
-            let since = (args["since_line"] as? NSNumber)?.intValue ?? 0
+            // 大きすぎる値で「since + 行数」があふれないよう範囲に収める
+            let since = SafeNumber.int((args["since_line"] as? NSNumber)?.doubleValue ?? 0, in: 0...10_000_000)
             guard let t = m.transcriptText(for: target, sinceLine: since) else {
                 fail(L("文字起こしがありません。ユーザーにチャットの「🎧」で聞き取りを始めてもらってください。"))
                 return

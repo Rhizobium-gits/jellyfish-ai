@@ -80,7 +80,7 @@ enum CodexUsage {
             guard let w = rl[key] as? [String: Any], let used = (w["used_percent"] as? NSNumber)?.doubleValue else { continue }
             let minutes = (w["window_minutes"] as? NSNumber)?.intValue
             let resets = (w["resets_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
-            var l = ClaudeAccount.Limit(label: label(minutes), percent: Int(used.rounded()), resetsAt: resets, resetsText: nil)
+            var l = ClaudeAccount.Limit(label: label(minutes), percent: SafeNumber.int(used.rounded(), in: 0...1000), resetsAt: resets, resetsText: nil)
             // 記録したあとに枠がリセットされていれば、いまは 0%
             if let r = resets, r <= now {
                 l.percent = 0

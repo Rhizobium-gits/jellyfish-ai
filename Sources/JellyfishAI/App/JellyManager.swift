@@ -1113,7 +1113,7 @@ final class JellyManager {
         let size = L.size
         let stepY = L.stepY
         let stepX = L.stepX
-        let rows = max(1, Int((vf.height * 0.90 - size.height) / stepY) + 1)
+        let rows = max(1, SafeNumber.int((vf.height * 0.90 - size.height) / stepY, in: 0...200) + 1)
         var out: [NSPoint] = []
         for col in 0..<8 {
             for row in 0..<rows {

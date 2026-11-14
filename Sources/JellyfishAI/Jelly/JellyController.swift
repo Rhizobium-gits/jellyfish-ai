@@ -128,11 +128,22 @@ final class JellyController: NSObject {
     }
 
     func despawn(_ done: @escaping () -> Void) {
+        // 消えていく間も消えたあとも、クリックを下のアプリへ素通りさせる
+        // （一覧から外したクラゲにはポインタの知らせが来ないので、押したときの「受け付ける」のまま残っていた）
+        panel.ignoresMouseEvents = true
         guard isVisible else { close(); done(); return }
-        avatar.despawn { [weak self] in
-            self?.close()
+        // このクラゲは呼んだ側の一覧からもう外れているので、消える動きが終わって窓を閉じるまでここで持っておく
+        // （弱く持っていたので閉じる前に消え、透明な窓が画面に残っていた）。
+        // 消える動きの終わりの知らせが来ないこともある（画面に描かれていないときなど）ので、少し待っても必ず閉じる
+        var finished = false
+        let finish: () -> Void = { [self] in
+            guard !finished else { return }
+            finished = true
+            close()
             done()
         }
+        avatar.despawn(finish)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: finish)
     }
 
     func close() {

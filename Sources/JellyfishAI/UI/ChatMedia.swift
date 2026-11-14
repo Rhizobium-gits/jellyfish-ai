@@ -212,7 +212,7 @@ final class ChatMediaCache {
     static func pngDataURL(_ img: NSImage, maxEdge: CGFloat = 720) -> String? {
         let s = img.size
         let k = min(1, maxEdge / max(s.width, s.height, 1))
-        let w = Int((s.width * k).rounded()), h = Int((s.height * k).rounded())
+        let w = SafeNumber.int((s.width * k).rounded(), in: 0...20_000), h = SafeNumber.int((s.height * k).rounded(), in: 0...20_000)
         guard w > 0, h > 0,
               let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
                                          hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }

@@ -165,7 +165,7 @@ final class DesktopControl {
     /// メインスレッドで呼ぶ。完了で reply（テキスト, エラーか）
     func call(_ tool: String, _ a: [String: Any], agent: UUID, name: String, color: NSColor, dir: URL,
               reply: @escaping (String, Bool) -> Void) {
-        func num(_ k: String) -> CGFloat? { (a[k] as? NSNumber).map { CGFloat($0.doubleValue) } }
+        func num(_ k: String) -> CGFloat? { (a[k] as? NSNumber).map { CGFloat($0.doubleValue) }.flatMap { $0.isFinite ? $0 : nil } }
         let needsAX = ["mouse_click", "mouse_drag", "scroll", "type_text", "press_keys", "ui_elements"].contains(tool)
         if needsAX && !DesktopControl.hasAccessibility {
             reply(L("アクセシビリティの権限がありません。ユーザーに「システム設定 › プライバシーとセキュリティ › アクセシビリティ で Jellyfish AI を許可」してもらってください。"), true)
@@ -194,7 +194,7 @@ final class DesktopControl {
         case "list_windows":
             reply(TeamCoordinator.json(DesktopControl.windows()), false)
         case "ui_elements":
-            let max = Int(num("max") ?? 150)
+            let max = SafeNumber.int(num("max") ?? 150, in: 1...400)
             reply(DesktopControl.uiElements(app: a["app"] as? String, max: min(max, 400)), false)
         case "open_app":
             if let s = a["url"] as? String {
@@ -212,9 +212,9 @@ final class DesktopControl {
         case "mouse_click":
             guard let x = num("x"), let y = num("y") else { reply(L("x, y が必要です"), true); return }
             let right = (a["button"] as? String) == "right"
-            let count = Int(num("count") ?? 1)
-            DesktopControl.click(CGPoint(x: x, y: y), right: right, count: max(1, min(count, 3)))
-            reply(L("クリックしました (%ld, %ld)", Int(x), Int(y)) + (count > 1 ? " ×\(count)" : ""), false)
+            let count = SafeNumber.int(num("count") ?? 1, in: 1...3)
+            DesktopControl.click(CGPoint(x: x, y: y), right: right, count: count)
+            reply(L("クリックしました (%ld, %ld)", SafeNumber.int(x), SafeNumber.int(y)) + (count > 1 ? " ×\(count)" : ""), false)
         case "mouse_drag":
             guard let fx = num("from_x"), let fy = num("from_y"), let tx = num("to_x"), let ty = num("to_y") else {
                 reply(L("from_x, from_y, to_x, to_y が必要です"), true); return
@@ -222,7 +222,8 @@ final class DesktopControl {
             DesktopControl.drag(from: CGPoint(x: fx, y: fy), to: CGPoint(x: tx, y: ty)) { reply(L("ドラッグしました"), false) }
         case "scroll":
             guard let x = num("x"), let y = num("y"), let dy = num("dy") else { reply(L("x, y, dy が必要です"), true); return }
-            DesktopControl.scroll(at: CGPoint(x: x, y: y), dy: Int32(dy), dx: Int32(num("dx") ?? 0))
+            DesktopControl.scroll(at: CGPoint(x: x, y: y), dy: Int32(SafeNumber.int(dy, in: -10_000...10_000)),
+                                  dx: Int32(SafeNumber.int(num("dx") ?? 0, in: -10_000...10_000)))
             reply(L("スクロールしました"), false)
         case "type_text":
             guard let t = a["text"] as? String else { reply(L("text が必要です"), true); return }
@@ -317,7 +318,7 @@ final class DesktopControl {
             let role = attr(e, kAXRoleAttribute) as? String ?? ""
             if interesting.contains(role), let f = frame(e), f.width > 2, f.height > 2 {
                 var item: [String: Any] = ["role": String(role.dropFirst(2)),
-                                           "x": Int(f.midX), "y": Int(f.midY), "w": Int(f.width), "h": Int(f.height)]
+                                           "x": SafeNumber.int(f.midX), "y": SafeNumber.int(f.midY), "w": SafeNumber.int(f.width), "h": SafeNumber.int(f.height)]
                 for (k, key) in [("title", kAXTitleAttribute), ("label", kAXDescriptionAttribute), ("value", kAXValueAttribute)] {
                     if let s = attr(e, key) as? String, !s.isEmpty { item[k] = String(s.prefix(80)) }
                 }
@@ -337,7 +338,7 @@ final class DesktopControl {
             if let kids = attr(menu as! AXUIElement, kAXChildrenAttribute) as? [AXUIElement] {
                 for k in kids.prefix(15) {
                     if let t = attr(k, kAXTitleAttribute) as? String, let f = frame(k) {
-                        out.append(["role": "MenuBarItem", "title": t, "x": Int(f.midX), "y": Int(f.midY)])
+                        out.append(["role": "MenuBarItem", "title": t, "x": SafeNumber.int(f.midX), "y": SafeNumber.int(f.midY)])
                     }
                 }
             }
