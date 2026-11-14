@@ -11,7 +11,8 @@
 # リリース版に入れ替える前に確かめること（アプリの「アップデートする」と同じ）：
 #   ・取ってくるのは https://github.com/<repo>/releases/download/<tag>/ の JellyfishAI-<版>.zip と SHA256SUMS.txt だけ
 #   ・SHA-256 が合うか、中身のバンドル ID と版、codesign --verify --strict、
-#     いまの版が証明書で署名されていれば、新しい版も同じ証明書の署名か（違えば入れ替えない）
+#     いまの版が証明書で署名されていれば、新しい版も同じ証明書の署名か。いまの版がこの Mac の固定の署名
+#     （scripts/signing.sh）なら、鍵があればそれで署名し直してから入れ替える（無ければ配布版の署名のまま）
 #   ・作業中のクラゲ（アプリの子プロセス）がいるときは入れ替えない。sudo は使わない
 set -euo pipefail
 
@@ -27,7 +28,7 @@ while [[ $# -gt 0 ]]; do
     --yes|-y) YES=1 ;;
     --no-open) OPEN=0 ;;
     --app) shift; APP="${1:-}"; [[ -n "$APP" ]] || { echo "--app には .app の場所を付けてください" >&2; exit 2; } ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -192,7 +193,22 @@ if [[ -d "$APP" ]]; then
     DR="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^#* *designated => //p' | head -1)"
     # 読めなければ確かめたことにしない（入れ替えない）
     [[ -n "$DR" ]] || fail "いまの版の署名の決まり（designated requirement）を読めません"
-    codesign --verify -R="$DR" "$NEW" 2>/dev/null || fail "いまの版と署名が違います（自分でビルドした版なら scripts/update.sh --source で上げてください）"
+    if ! codesign --verify -R="$DR" "$NEW" 2>/dev/null; then
+      # 証明書 1 枚だけ（この Mac で作った自己署名＝固定の署名）なら、配布版がその証明書で署名されることはない。
+      # 鍵があればそれで署名し直し（macOS の許可が続く）、無ければ配布版の署名のまま入れ替える。
+      # Developer ID など認証局の証明書（2 枚以上）のときは、作った人が同じことを確かめられないので入れ替えない
+      AUTHS="$(printf '%s\n' "$SIG" | grep -c '^Authority=' || true)"
+      [[ "$AUTHS" == 1 ]] || fail "いまの版と署名が違います（作った人が同じことを確かめられないので入れ替えません）"
+      HASH="$(printf '%s\n' "$DR" | sed -n 's/.*certificate leaf = H"\([0-9a-fA-F]\{40\}\)".*/\1/p' | head -1)"
+      if [[ -n "$HASH" ]] && security find-identity -p codesigning 2>/dev/null | grep -qi ") ${HASH} "; then
+        say "この Mac の固定の署名で署名し直します（macOS が「codesign がキーを使おうとしています」と確かめたら「許可」を押してください）"
+        codesign --force --sign "$HASH" --options runtime --preserve-metadata=entitlements --timestamp=none "$NEW" \
+          || fail "この Mac の固定の署名で署名し直せませんでした（「許可」を押さなかったか、鍵が使えません）。いまの版はそのままです"
+        codesign --verify --strict -R="$DR" "$NEW" 2>/dev/null || fail "署名し直した版が、いまの版の署名と合いません。いまの版はそのままです"
+      else
+        say "固定の署名の鍵がこの Mac に見つからないので、配布版の仮の署名（ad-hoc）のまま入れ替えます"
+      fi
+    fi
   fi
 fi
 

@@ -99,18 +99,113 @@ enum AppUpdater {
         return flags & SecCodeSignatureFlags.adhoc.rawValue != 0 || d[kSecCodeInfoCertificates as String] == nil
     }
 
-    /// 署名が正しいか（中身が書き換えられていないか）。いまの版が証明書で署名されていれば、同じ証明書の署名であることも
-    static func signatureProblem(new: URL, current: URL) -> String? {
-        guard let code = staticCode(new) else { return L("署名を読めません。") }
-        var req: SecRequirement?
-        if !isAdhoc(current), let cur = staticCode(current) {
-            var r: SecRequirement?
-            if SecCodeCopyDesignatedRequirement(cur, [], &r) == errSecSuccess { req = r }
+    static let validityFlags = SecCSFlags(rawValue: UInt32(kSecCSStrictValidate) | UInt32(kSecCSCheckAllArchitectures) | UInt32(kSecCSCheckNestedCode))
+
+    static func designatedRequirement(_ url: URL) -> SecRequirement? {
+        guard let code = staticCode(url) else { return nil }
+        var r: SecRequirement?
+        return SecCodeCopyDesignatedRequirement(code, [], &r) == errSecSuccess ? r : nil
+    }
+
+    /// 証明書 1 枚だけで署名され、その証明書が自己署名（発行者 = 主体）なら、その SHA-1（小文字の 16 進）と名前。
+    /// scripts/signing.sh の「固定の署名」（この Mac で作った証明書）がこれ。Developer ID など認証局が出したもの（鎖が 2 枚以上）は nil
+    static func selfSignedCertificate(_ url: URL) -> (sha1: String, name: String)? {
+        guard let code = staticCode(url) else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)), &info) == errSecSuccess,
+              let d = info as? [String: Any],
+              let certs = d[kSecCodeInfoCertificates as String] as? [SecCertificate], certs.count == 1,
+              let issuer = SecCertificateCopyNormalizedIssuerSequence(certs[0]) as Data?,
+              let subject = SecCertificateCopyNormalizedSubjectSequence(certs[0]) as Data?,
+              issuer == subject else { return nil }
+        let der = SecCertificateCopyData(certs[0]) as Data
+        let sha1 = Insecure.SHA1.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        return (sha1, (SecCertificateCopySubjectSummary(certs[0]) as String?) ?? "")
+    }
+
+    /// その証明書の署名用の鍵がキーチェーンにあるか。security find-identity は一覧を出すだけで鍵は使わない（macOS の確認は出ない）
+    static func hasSigningIdentity(sha1: String) -> Bool {
+        guard let out = capture("/usr/bin/security", ["find-identity", "-p", "codesigning"], timeout: 15) else { return false }
+        return identityList(out, contains: sha1)
+    }
+
+    /// security find-identity の出力（「  1) <40 桁の 16 進> "名前"」の行）に、その SHA-1 があるか
+    static func identityList(_ out: String, contains sha1: String) -> Bool {
+        let want = sha1.uppercased()
+        guard want.count == 40, want.allSatisfy(\.isHexDigit) else { return false }
+        return out.split(whereSeparator: \.isNewline).contains { line in
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            return parts.count >= 2 && parts[0].hasSuffix(")") && parts[1].uppercased() == want
         }
-        let flags = SecCSFlags(rawValue: UInt32(kSecCSStrictValidate) | UInt32(kSecCSCheckAllArchitectures) | UInt32(kSecCSCheckNestedCode))
-        let st = SecStaticCodeCheckValidity(code, flags, req)
-        if st == errSecSuccess { return nil }
-        return req == nil ? L("署名が正しくありません（%ld）。", Int(st)) : L("いまの版と署名が違います（%ld）。自分でビルドした版は、ダウンロードページから入れ直してください。", Int(st))
+    }
+
+    private static func capture(_ path: String, _ args: [String], timeout: Double) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        p.standardInput = FileHandle.nullDevice
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if p.isRunning { p.terminate() } }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    }
+
+    /// いまの版の署名（アップデートの説明に使う）
+    enum CurrentSigning: Equatable {
+        case adhoc
+        /// この Mac で作った自己署名の証明書（固定の署名）。hasKey：署名用の鍵がキーチェーンにあるか
+        case local(name: String, hasKey: Bool)
+        /// 認証局が出した証明書（Developer ID など）
+        case issued
+    }
+
+    static func currentSigning(_ app: URL = Bundle.main.bundleURL, hasKey: (String) -> Bool = { hasSigningIdentity(sha1: $0) }) -> CurrentSigning {
+        if isAdhoc(app) { return .adhoc }
+        guard let c = selfSignedCertificate(app) else { return .issued }
+        return .local(name: c.name, hasKey: hasKey(c.sha1))
+    }
+
+    /// 取ってきた版を入れ替える前にすること
+    enum SigningStep: Equatable {
+        /// そのまま入れ替える（いまの版が仮の署名、または同じ証明書の署名）
+        case keep
+        /// いまの版が固定の署名：配布版はその証明書で署名されることがないので、この Mac の鍵で署名し直してから入れ替える（macOS の許可が続く）
+        case resign(sha1: String)
+        /// 固定の署名だが鍵がこの Mac に無い：配布版の署名のまま入れ替える（macOS の許可は求め直される）
+        case releaseSignature
+        case refuse(String)
+
+        var isRefuse: Bool { if case .refuse = self { return true }; return false }
+    }
+
+    /// 署名が正しいか（中身が書き換えられていないか）を確かめ、入れ替える前にすることを決める。
+    /// 認証局の証明書（Developer ID など）で署名された版からは、同じ人の署名の版にしか入れ替えない
+    static func signingStep(new: URL, current: URL, hasKey: (String) -> Bool = { hasSigningIdentity(sha1: $0) }) -> SigningStep {
+        guard let code = staticCode(new) else { return .refuse(L("署名を読めません。")) }
+        let own = SecStaticCodeCheckValidity(code, validityFlags, nil)
+        guard own == errSecSuccess else { return .refuse(L("署名が正しくありません（%ld）。", Int(own))) }
+        if isAdhoc(current) { return .keep }
+        guard let req = designatedRequirement(current) else { return .refuse(L("いまの版の署名を読めません。")) }
+        let st = SecStaticCodeCheckValidity(code, validityFlags, req)
+        if st == errSecSuccess { return .keep }
+        if let c = selfSignedCertificate(current) { return hasKey(c.sha1) ? .resign(sha1: c.sha1) : .releaseSignature }
+        return .refuse(L("いまの版と署名が違います（%ld）。作った人が同じことを確かめられないので入れ替えません。ダウンロードページから入れ直してください。", Int(st)))
+    }
+
+    /// 固定の署名で署名し直す codesign の引数（scripts/build.sh --sign と同じ形。エンタイトルメントは配布版の署名のものをそのまま使う）。
+    /// 鍵は「常に許可」にしていなければ、macOS が「codesign がキーを使おうとしています」と確かめる
+    static func resignArguments(_ app: URL, sha1: String) -> [String] {
+        ["--force", "--sign", sha1.uppercased(), "--options", "runtime", "--preserve-metadata=entitlements", "--timestamp=none", app.path]
+    }
+
+    /// 署名し直した版が、いまの版の署名の決まり（同じ証明書・同じバンドル ID）を満たし、中身も正しいか
+    static func satisfiesCurrent(new: URL, current: URL) -> Bool {
+        guard let code = staticCode(new), let req = designatedRequirement(current) else { return false }
+        return SecStaticCodeCheckValidity(code, validityFlags, req) == errSecSuccess
     }
 }
 
@@ -193,6 +288,8 @@ final class UpdateSession: NSObject, URLSessionTaskDelegate {
     private var panel: NSPanel?
     private var label: NSTextField?
     private var task: Task<Void, Never>?
+    private var running: Process?
+    private let runningLock = NSLock()
     private lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
 
     private struct Failure: Error { let message: String }
@@ -239,12 +336,26 @@ final class UpdateSession: NSObject, URLSessionTaskDelegate {
                 throw Failure(message: L("チェックサムが合いません（ダウンロードが壊れているか、書き換えられています）。"))
             }
             let out = work.appendingPathComponent("new", isDirectory: true)
-            try runTool("/usr/bin/ditto", ["-x", "-k", zip.path, out.path])
+            try runTool("/usr/bin/ditto", ["-x", "-k", zip.path, out.path], failure: L("ダウンロードしたファイルを開けません。"))
             let app = out.appendingPathComponent("JellyfishAI.app", isDirectory: true)
             let attrs = try fm.attributesOfItem(atPath: app.path)
             guard attrs[.type] as? FileAttributeType == .typeDirectory else { throw Failure(message: L("中身が Jellyfish AI ではありません。")) }
             if let why = AppUpdater.bundleProblem(app, version: release.version, bundleID: Bundle.main.bundleIdentifier) { throw Failure(message: why) }
-            if let why = AppUpdater.signatureProblem(new: app, current: Bundle.main.bundleURL) { throw Failure(message: why) }
+            let current = Bundle.main.bundleURL
+            switch AppUpdater.signingStep(new: app, current: current) {
+            case .keep: break
+            case .refuse(let why): throw Failure(message: why)
+            case .releaseSignature:
+                AppLog.write("update: fixed-signing key not found; installing with the release signature")
+            case .resign(let sha1):
+                await setStatus(L("この Mac の固定の署名で署名し直しています…\nmacOS が「codesign がキーを使おうとしています」と確かめたら「許可」を押してください。"))
+                try runTool("/usr/bin/codesign", AppUpdater.resignArguments(app, sha1: sha1),
+                            failure: L("この Mac の固定の署名で署名し直せませんでした（macOS の確認で「許可」を押さなかったか、鍵が使えません）。いまの版はそのままです。"))
+                guard AppUpdater.satisfiesCurrent(new: app, current: current) else {
+                    throw Failure(message: L("署名し直した版が、いまの版の署名と合いません。いまの版はそのままです。"))
+                }
+                AppLog.write("update: re-signed with the fixed signing certificate")
+            }
             try Task.checkCancellation()
             await MainActor.run { self.install(app) }
         } catch is CancellationError {
@@ -256,7 +367,9 @@ final class UpdateSession: NSObject, URLSessionTaskDelegate {
         }
     }
 
-    private func runTool(_ path: String, _ args: [String]) throws {
+    /// 道具を動かして終わるのを待つ。キャンセルされたら止める（codesign が macOS の確認を待っているときも）
+    private func runTool(_ path: String, _ args: [String], failure: String) throws {
+        try Task.checkCancellation()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
@@ -264,8 +377,11 @@ final class UpdateSession: NSObject, URLSessionTaskDelegate {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try p.run()
+        runningLock.lock(); running = p; runningLock.unlock()
+        defer { runningLock.lock(); running = nil; runningLock.unlock() }
         p.waitUntilExit()
-        guard p.terminationStatus == 0 else { throw Failure(message: L("ダウンロードしたファイルを開けません。")) }
+        try Task.checkCancellation()
+        guard p.terminationStatus == 0 else { throw Failure(message: failure) }
     }
 
     /// リダイレクトは GitHub（github.com・*.githubusercontent.com）の https の中だけ
@@ -328,8 +444,9 @@ final class UpdateSession: NSObject, URLSessionTaskDelegate {
         let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
         p.title = L("Jellyfish AI のアップデート")
         p.isReleasedWhenClosed = false
-        let label = NSTextField(labelWithString: L("%@ をダウンロードしています…", release.version))
+        let label = NSTextField(wrappingLabelWithString: L("%@ をダウンロードしています…", release.version))
         label.font = .systemFont(ofSize: 13)
+        label.preferredMaxLayoutWidth = 340
         let bar = NSProgressIndicator()
         bar.style = .bar
         bar.isIndeterminate = true
@@ -353,7 +470,12 @@ final class UpdateSession: NSObject, URLSessionTaskDelegate {
     @MainActor private func setStatus(_ s: String) { label?.stringValue = s }
     private func setStatusNow(_ s: String) { label?.stringValue = s }
 
-    @objc private func cancelUpdate() { task?.cancel(); session.invalidateAndCancel() }
+    @objc private func cancelUpdate() {
+        task?.cancel()
+        session.invalidateAndCancel()
+        runningLock.lock(); let p = running; runningLock.unlock()
+        if let p, p.isRunning { p.terminate() }
+    }
 
     private func finish(keepFiles: Bool = false) {
         panel?.close()

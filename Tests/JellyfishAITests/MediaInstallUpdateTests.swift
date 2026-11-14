@@ -200,7 +200,7 @@ import Testing
         #expect(AppUpdater.bundleProblem(app, version: "1.0.6", bundleID: "ai.jellyfish.desktop.orgtest") != nil)
         #expect(AppUpdater.bundleProblem(app, version: "1.0.6", bundleID: nil) != nil)
         // 署名の無いものは通さない
-        #expect(AppUpdater.signatureProblem(new: app, current: app) != nil)
+        #expect(AppUpdater.signingStep(new: app, current: app).isRefuse)
     }
 
     /// 実際のリリースで、ダウンロード → チェックサム → 展開 → 中身と署名の確認までを通す（ネットにつなぐので JELLYFISH_LIVE_UPDATE_TEST=1 のときだけ）
@@ -226,10 +226,10 @@ import Testing
         d.waitUntilExit()
         let app = dir.appendingPathComponent("new/JellyfishAI.app")
         #expect(AppUpdater.bundleProblem(app, version: r.version, bundleID: "ai.jellyfish.desktop") == nil)
-        #expect(AppUpdater.signatureProblem(new: app, current: app) == nil)
+        #expect(AppUpdater.signingStep(new: app, current: app) == .keep)
         if FileManager.default.fileExists(atPath: "/Applications/JellyfishAI.app") {
             print("live: installed adhoc=\(AppUpdater.isAdhoc(URL(fileURLWithPath: "/Applications/JellyfishAI.app"))) release adhoc=\(AppUpdater.isAdhoc(app))",
-                  "vs installed:", AppUpdater.signatureProblem(new: app, current: URL(fileURLWithPath: "/Applications/JellyfishAI.app")) ?? "ok")
+                  "vs installed:", AppUpdater.signingStep(new: app, current: URL(fileURLWithPath: "/Applications/JellyfishAI.app")))
         }
     }
 

@@ -93,6 +93,8 @@ enum UpdateChecker {
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let tag = json?["tag_name"] as? String
+            // いまの版の署名（固定の署名なら鍵があるかを security で調べるので、画面のスレッドの外で）
+            let signing = AppUpdater.currentSigning()
             DispatchQueue.main.async {
                 let a = NSAlert()
                 a.icon = NSApp.applicationIconImage
@@ -117,8 +119,17 @@ enum UpdateChecker {
                 let release = json.flatMap(AppUpdater.release(from:))
                 if let release {
                     var text = L("いまのバージョンは %@ です。「アップデートする」を押すと、GitHub のリリースから新しい版をダウンロードし、チェックサムと署名を確かめてから入れ替えて、開き直します（設定・クラゲ・会話はそのまま残ります）。", current)
-                    if AppUpdater.isAdhoc(Bundle.main.bundleURL) {
+                    switch signing {
+                    case .adhoc:
                         text += "\n\n" + L("いまの版は仮の署名（ad-hoc）なので、入れ替えたあと macOS に画面収録・アクセシビリティ・フォルダの許可をもう一度求められることがあります（メニューバーのクラゲ › 🔐 権限 の「まとめて許可する」で許可し直せます）。")
+                    case .local(let name, true):
+                        text += "\n\n" + L("いまの版はこの Mac の固定の署名（%@）なので、新しい版をこの署名で署名し直してから入れ替えます（macOS の許可はそのまま続きます）。途中で macOS が「codesign がキーを使おうとしています」と確かめるので「許可」を押してください（「常に許可」にすると、ほかのプログラムも確認なしでこの鍵を使えるようになります）。", name)
+                    case .local(let name, false):
+                        text += "\n\n" + L("いまの版は固定の署名（%@）ですが、その鍵がこの Mac のキーチェーンに見つからないので、配布版の仮の署名（ad-hoc）のまま入れ替えます。macOS に画面収録・アクセシビリティ・フォルダの許可をもう一度求められることがあります（メニューバーのクラゲ › 🔐 権限 の「まとめて許可する」で許可し直せます）。", name)
+                    case .issued:
+                        break
+                    }
+                    if signing != .issued {
                         text += "\n" + L("また、確かめられるのは「壊れていない・このリポジトリの GitHub のリリースのとおり・中身が Jellyfish AI のその版」までで、作った人までは確かめられません（GitHub を信じることになります）。")
                     }
                     // ターミナルで上げるコマンド（ソースから入れていれば git pull → install.sh）
